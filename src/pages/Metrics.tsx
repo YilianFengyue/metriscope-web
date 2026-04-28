@@ -19,6 +19,7 @@ import {
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowUpRight,
   Filter,
   Inbox,
   Search,
@@ -834,6 +835,7 @@ function DependencySummaryCard({ deps }: { deps: DependencyEdgeResponse[] }) {
 }
 
 function ClassTable({ classes }: { classes: ClassMetricResponse[] }) {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [risk, setRisk] = useState<"ALL" | RiskLevel>("ALL");
 
@@ -948,10 +950,20 @@ function ClassTable({ classes }: { classes: ClassMetricResponse[] }) {
             </TableHeader>
             <TableBody>
               {filtered.map((c) => (
-                <TableRow key={c.qualifiedName}>
+                <TableRow
+                  key={c.qualifiedName}
+                  className="cursor-pointer hover:bg-accent/40 transition-colors group"
+                  onClick={() =>
+                    navigate(
+                      `/metrics/class/${encodeURIComponent(c.qualifiedName)}`,
+                    )
+                  }
+                  title="点击查看类详情"
+                >
                   <TableCell className="pl-5 max-w-[280px]">
-                    <div className="font-mono text-xs truncate">
-                      {c.qualifiedName}
+                    <div className="flex items-center gap-1.5 font-mono text-xs">
+                      <span className="truncate">{c.qualifiedName}</span>
+                      <ArrowUpRight className="h-3 w-3 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
                     </div>
                   </TableCell>
                   <NumCell value={c.loc} />

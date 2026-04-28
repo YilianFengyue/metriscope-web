@@ -3,6 +3,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import ProjectsPage from "@/pages/Projects";
 import AnalysisPage from "@/pages/Analysis";
 import MetricsPage from "@/pages/Metrics";
+import ClassDetailPage from "@/pages/ClassDetail";
 import HistoryPage from "@/pages/History";
 import ReportsPage from "@/pages/Reports";
 import SettingsPage from "@/pages/Settings";
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/analysis" element={<AnalysisPage />} />
         <Route path="/metrics" element={<MetricsPage />} />
+        <Route path="/metrics/class/:fqn" element={<ClassDetailPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
