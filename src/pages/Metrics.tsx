@@ -5,6 +5,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   PolarAngleAxis,
   PolarGrid,
   PolarRadiusAxis,
@@ -80,6 +81,20 @@ const CK_AXES = [
   { key: "NOC", label: "NOC", ceiling: 10 },
   { key: "LCOM", label: "LCOM", ceiling: 1 },
 ] as const;
+
+const LK_AXES = [
+  { key: "CS", label: "CS · 规模", ceiling: 500 },
+  { key: "NOO", label: "NOO · 操作", ceiling: 20 },
+  { key: "NOA", label: "NOA · 属性", ceiling: 15 },
+  { key: "SI", label: "SI · 特化", ceiling: 2 },
+] as const;
+
+const LK_COLORS = {
+  avg: "oklch(0.62 0.18 165)",
+  max: "oklch(0.55 0.22 295)",
+  noa: "oklch(0.72 0.14 175)",
+  noo: "oklch(0.55 0.2 290)",
+} as const;
 
 export default function MetricsPage() {
   const currentProjectId = useApp((s) => s.currentProjectId);
@@ -183,6 +198,11 @@ function MetricsInner({ projectId }: { projectId: number }) {
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <CkRadarCard classes={classes} />
         <ComplexityHistogramCard methods={methods} />
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <LkRadarCard classes={classes} />
+        <ClassAnatomyCard classes={classes} />
       </section>
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -425,6 +445,254 @@ function ComplexityHistogramCard({
   );
 }
 
+function LkRadarCard({ classes }: { classes: ClassMetricResponse[] }) {
+  const { data, summary } = useMemo(() => {
+    if (classes.length === 0) {
+      return { data: [], summary: { avgCs: 0, avgNoo: 0, avgNoa: 0, avgSi: 0 } };
+    }
+    const sums = { CS: 0, NOO: 0, NOA: 0, SI: 0 };
+    const maxV = { CS: 0, NOO: 0, NOA: 0, SI: 0 };
+    for (const c of classes) {
+      sums.CS += c.classSize;
+      sums.NOO += c.numberOfOperations;
+      sums.NOA += c.numberOfAttributes;
+      sums.SI += c.specializationIndex;
+      maxV.CS = Math.max(maxV.CS, c.classSize);
+      maxV.NOO = Math.max(maxV.NOO, c.numberOfOperations);
+      maxV.NOA = Math.max(maxV.NOA, c.numberOfAttributes);
+      maxV.SI = Math.max(maxV.SI, c.specializationIndex);
+    }
+    const n = classes.length;
+    return {
+      data: LK_AXES.map((axis) => ({
+        metric: axis.label,
+        avg: Math.min(100, ((sums[axis.key] / n) / axis.ceiling) * 100),
+        max: Math.min(100, (maxV[axis.key] / axis.ceiling) * 100),
+        avgRaw: sums[axis.key] / n,
+        maxRaw: maxV[axis.key],
+      })),
+      summary: {
+        avgCs: sums.CS / n,
+        avgNoo: sums.NOO / n,
+        avgNoa: sums.NOA / n,
+        avgSi: sums.SI / n,
+      },
+    };
+  }, [classes]);
+
+  return (
+    <Card className="relative overflow-hidden">
+      {/* 翡翠 → 紫罗兰渐变光晕，标记 LK 视觉身份 */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full opacity-[0.12] blur-3xl"
+        style={{
+          background:
+            "radial-gradient(circle, oklch(0.62 0.18 165) 0%, oklch(0.55 0.22 295) 70%, transparent 100%)",
+        }}
+      />
+      <CardHeader>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              LK 度量雷达
+              <Badge variant="outline" className="text-[10px] font-normal">
+                CS · NOO · NOA · SI
+              </Badge>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              规模 / 操作 / 属性 / 特化指数；归一到 0-100，越接近外圈类越"胖"
+            </p>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {classes.length === 0 ? (
+          <div className="py-16 text-center text-sm text-muted-foreground">
+            暂无类数据
+          </div>
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={260}>
+              <RadarChart data={data}>
+                <PolarGrid stroke="var(--color-border)" />
+                <PolarAngleAxis
+                  dataKey="metric"
+                  stroke="var(--color-muted-foreground)"
+                  tick={{ fontSize: 11 }}
+                />
+                <PolarRadiusAxis
+                  domain={[0, 100]}
+                  tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
+                  stroke="var(--color-border)"
+                />
+                <Radar
+                  name="项目最大"
+                  dataKey="max"
+                  stroke={LK_COLORS.max}
+                  fill={LK_COLORS.max}
+                  fillOpacity={0.18}
+                />
+                <Radar
+                  name="项目平均"
+                  dataKey="avg"
+                  stroke={LK_COLORS.avg}
+                  fill={LK_COLORS.avg}
+                  fillOpacity={0.4}
+                />
+                <Tooltip
+                  formatter={(_v, _n, p) => [
+                    `${(p.payload as any)[`${p.dataKey === "avg" ? "avgRaw" : "maxRaw"}`].toFixed(2)}`,
+                    p.dataKey === "avg" ? "平均原值" : "最大原值",
+                  ]}
+                  contentStyle={{
+                    background: "var(--color-card)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}
+                />
+              </RadarChart>
+            </ResponsiveContainer>
+            <div className="grid grid-cols-4 gap-2 pt-2 border-t border-border/60 mt-2">
+              <LkStat label="CS" value={summary.avgCs.toFixed(0)} hint="平均规模" />
+              <LkStat label="NOO" value={summary.avgNoo.toFixed(1)} hint="平均操作" />
+              <LkStat label="NOA" value={summary.avgNoa.toFixed(1)} hint="平均属性" />
+              <LkStat label="SI" value={summary.avgSi.toFixed(2)} hint="平均特化" />
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LkStat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+}) {
+  return (
+    <div className="space-y-0.5 text-center">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+        {label}
+      </div>
+      <div className="text-base font-semibold tabular-nums">{value}</div>
+      <div className="text-[10px] text-muted-foreground">{hint}</div>
+    </div>
+  );
+}
+
+function ClassAnatomyCard({ classes }: { classes: ClassMetricResponse[] }) {
+  const data = useMemo(() => {
+    return [...classes]
+      .map((c) => ({
+        name: c.qualifiedName,
+        shortName:
+          c.className.length > 18 ? c.className.slice(0, 17) + "…" : c.className,
+        noa: c.numberOfAttributes,
+        noo: c.numberOfOperations,
+        cs: c.classSize,
+        si: c.specializationIndex,
+        total: c.numberOfAttributes + c.numberOfOperations,
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8)
+      .reverse();
+  }, [classes]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          类剖面 Top 8
+          <Badge variant="outline" className="text-[10px] font-normal">
+            NOA + NOO
+          </Badge>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          按"属性 + 操作"成员总数排行，看哪些类承担最多职责
+        </p>
+      </CardHeader>
+      <CardContent>
+        {data.length === 0 ? (
+          <div className="py-16 text-center text-sm text-muted-foreground">
+            暂无类数据
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={310}>
+            <BarChart
+              data={data}
+              layout="vertical"
+              margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
+              barCategoryGap={8}
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="var(--color-border)"
+                horizontal={false}
+              />
+              <XAxis
+                type="number"
+                stroke="var(--color-muted-foreground)"
+                tick={{ fontSize: 11 }}
+                allowDecimals={false}
+              />
+              <YAxis
+                type="category"
+                dataKey="shortName"
+                stroke="var(--color-muted-foreground)"
+                tick={{ fontSize: 10, fontFamily: "var(--font-mono, monospace)" }}
+                width={120}
+                tickLine={false}
+              />
+              <Tooltip
+                cursor={{ fill: "color-mix(in oklch, var(--color-muted) 60%, transparent)" }}
+                contentStyle={{
+                  background: "var(--color-card)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  padding: "8px 10px",
+                }}
+                labelFormatter={(_, items) => {
+                  const p = items?.[0]?.payload as any;
+                  if (!p) return "";
+                  return `${p.name}  ·  CS=${p.cs}  ·  SI=${p.si.toFixed(2)}`;
+                }}
+                formatter={(v, n) => [`${v} 个`, n]}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: 11, paddingTop: 6 }}
+                iconType="circle"
+                iconSize={8}
+              />
+              <Bar
+                dataKey="noa"
+                stackId="lk"
+                name="属性 NOA"
+                fill={LK_COLORS.noa}
+                radius={[4, 0, 0, 4]}
+              />
+              <Bar
+                dataKey="noo"
+                stackId="lk"
+                name="操作 NOO"
+                fill={LK_COLORS.noo}
+                radius={[0, 4, 4, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function RisksCard({ risks }: { risks: RiskItemResponse[] }) {
   const top = useMemo(() => {
     return [...risks]
@@ -607,13 +875,73 @@ function ClassTable({ classes }: { classes: ClassMetricResponse[] }) {
               <TableRow>
                 <TableHead className="pl-5">类</TableHead>
                 <TableHead className="text-right">LoC</TableHead>
-                <TableHead className="text-right">WMC</TableHead>
-                <TableHead className="text-right">RFC</TableHead>
-                <TableHead className="text-right">CBO</TableHead>
-                <TableHead className="text-right">DIT</TableHead>
-                <TableHead className="text-right">NOC</TableHead>
-                <TableHead className="text-right">LCOM</TableHead>
-                <TableHead className="text-right">AvgCx</TableHead>
+                <TableHead
+                  className="text-right text-primary/70"
+                  title="Weighted Methods per Class"
+                >
+                  WMC
+                </TableHead>
+                <TableHead
+                  className="text-right text-primary/70"
+                  title="Response For a Class"
+                >
+                  RFC
+                </TableHead>
+                <TableHead
+                  className="text-right text-primary/70"
+                  title="Coupling Between Objects"
+                >
+                  CBO
+                </TableHead>
+                <TableHead
+                  className="text-right text-primary/70"
+                  title="Depth of Inheritance Tree"
+                >
+                  DIT
+                </TableHead>
+                <TableHead
+                  className="text-right text-primary/70"
+                  title="Number of Children"
+                >
+                  NOC
+                </TableHead>
+                <TableHead
+                  className="text-right text-primary/70"
+                  title="Lack of Cohesion of Methods"
+                >
+                  LCOM
+                </TableHead>
+                <TableHead
+                  className="text-right border-l border-border/60"
+                  style={{ color: LK_COLORS.avg }}
+                  title="Class Size · 类规模"
+                >
+                  CS
+                </TableHead>
+                <TableHead
+                  className="text-right"
+                  style={{ color: LK_COLORS.avg }}
+                  title="Number of Operations · 操作数"
+                >
+                  NOO
+                </TableHead>
+                <TableHead
+                  className="text-right"
+                  style={{ color: LK_COLORS.avg }}
+                  title="Number of Attributes · 属性数"
+                >
+                  NOA
+                </TableHead>
+                <TableHead
+                  className="text-right"
+                  style={{ color: LK_COLORS.avg }}
+                  title="Specialization Index · 特化指数"
+                >
+                  SI
+                </TableHead>
+                <TableHead className="text-right border-l border-border/60">
+                  AvgCx
+                </TableHead>
                 <TableHead className="text-right">MaxCx</TableHead>
                 <TableHead>风险</TableHead>
               </TableRow>
@@ -633,7 +961,11 @@ function ClassTable({ classes }: { classes: ClassMetricResponse[] }) {
                   <NumCell value={c.depthOfInheritanceTree} />
                   <NumCell value={c.numberOfChildren} />
                   <NumCell value={c.lackOfCohesionOfMethods.toFixed(2)} />
-                  <NumCell value={c.averageComplexity.toFixed(2)} />
+                  <NumCell value={c.classSize} accent borderLeft />
+                  <NumCell value={c.numberOfOperations} accent />
+                  <NumCell value={c.numberOfAttributes} accent />
+                  <NumCell value={c.specializationIndex.toFixed(2)} accent />
+                  <NumCell value={c.averageComplexity.toFixed(2)} borderLeft />
                   <NumCell value={c.maxComplexity} />
                   <TableCell>
                     <Badge variant={RISK_VARIANT[c.riskLevel]}>
@@ -778,9 +1110,23 @@ function FilterRow({
   );
 }
 
-function NumCell({ value }: { value: number | string }) {
+function NumCell({
+  value,
+  accent,
+  borderLeft,
+}: {
+  value: number | string;
+  accent?: boolean;
+  borderLeft?: boolean;
+}) {
   return (
-    <TableCell className="text-right tabular-nums font-mono text-xs">
+    <TableCell
+      className={cn(
+        "text-right tabular-nums font-mono text-xs",
+        borderLeft && "border-l border-border/60",
+      )}
+      style={accent ? { color: LK_COLORS.avg } : undefined}
+    >
       {value}
     </TableCell>
   );
