@@ -359,6 +359,8 @@ export interface EstimateResponse {
 export const systemApi = {
   ping: (opts?: RequestOptions) =>
     get<SystemPingResponse>(`${PREFIX}/system/ping`, { silent: true, ...opts }),
+  browse: (path?: string, opts?: RequestOptions) =>
+      get<string[]>(`${PREFIX}/system/browse?path=${encodeURIComponent(path || "")}`, opts),
 };
 
 export const projectsApi = {
