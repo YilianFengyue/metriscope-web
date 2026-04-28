@@ -1,15 +1,25 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import Dashboard from "@/pages/Dashboard";
-import DependencyGraph from "@/pages/DependencyGraph";
+import { AppShell } from "@/components/layout/AppShell";
+import ProjectsPage from "@/pages/Projects";
+import AnalysisPage from "@/pages/Analysis";
+import MetricsPage from "@/pages/Metrics";
+import HistoryPage from "@/pages/History";
+import ReportsPage from "@/pages/Reports";
+import SettingsPage from "@/pages/Settings";
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/dependency-graph" element={<DependencyGraph />} />
-      </Routes>
-    </div>
+    <Routes>
+      <Route element={<AppShell />}>
+        <Route path="/" element={<Navigate to="/projects" replace />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/analysis" element={<AnalysisPage />} />
+        <Route path="/metrics" element={<MetricsPage />} />
+        <Route path="/history" element={<HistoryPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/projects" replace />} />
+      </Route>
+    </Routes>
   );
 }

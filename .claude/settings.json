@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm rebuild *)",
+      "Bash(node node_modules/.pnpm/esbuild@*/node_modules/esbuild/install.js)"
+    ]
+  }
+}

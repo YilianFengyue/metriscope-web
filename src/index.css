@@ -1,48 +1,60 @@
 @import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 @theme {
-  --color-background: oklch(0.99 0 0);
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+
+  --color-background: oklch(1 0 0);
   --color-foreground: oklch(0.18 0.02 260);
 
-  --color-muted: oklch(0.96 0.005 260);
-  --color-muted-foreground: oklch(0.5 0.02 260);
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.18 0.02 260);
+
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.18 0.02 260);
 
   --color-primary: oklch(0.55 0.18 260);
   --color-primary-foreground: oklch(0.99 0 0);
 
-  --color-accent: oklch(0.94 0.02 260);
+  --color-secondary: oklch(0.97 0.005 260);
+  --color-secondary-foreground: oklch(0.2 0.02 260);
+
+  --color-muted: oklch(0.97 0.005 260);
+  --color-muted-foreground: oklch(0.5 0.02 260);
+
+  --color-accent: oklch(0.96 0.012 260);
   --color-accent-foreground: oklch(0.2 0.02 260);
 
-  --color-border: oklch(0.9 0.01 260);
-  --color-card: oklch(1 0 0);
-  --color-card-foreground: oklch(0.18 0.02 260);
+  --color-destructive: oklch(0.6 0.22 25);
+  --color-destructive-foreground: oklch(0.99 0 0);
+
+  --color-border: oklch(0.92 0.005 260);
+  --color-input: oklch(0.92 0.005 260);
+  --color-ring: oklch(0.55 0.18 260);
 
   --radius-lg: 12px;
   --radius-md: 8px;
   --radius-sm: 6px;
 }
 
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-background: oklch(0.16 0.01 260);
-    --color-foreground: oklch(0.96 0.005 260);
-    --color-muted: oklch(0.22 0.01 260);
-    --color-muted-foreground: oklch(0.7 0.01 260);
-    --color-primary: oklch(0.7 0.18 260);
-    --color-primary-foreground: oklch(0.16 0.01 260);
-    --color-accent: oklch(0.24 0.02 260);
-    --color-accent-foreground: oklch(0.96 0.005 260);
-    --color-border: oklch(0.28 0.01 260);
-    --color-card: oklch(0.2 0.01 260);
-    --color-card-foreground: oklch(0.96 0.005 260);
-  }
-}
-
 html, body, #root {
   height: 100%;
 }
 
+html {
+  color-scheme: light;
+}
+
 body {
-  font-family: ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-feature-settings: "cv11", "ss01";
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01", "tnum";
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+code, pre, .font-mono {
+  font-family: var(--font-mono);
 }
