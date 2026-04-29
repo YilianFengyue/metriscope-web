@@ -139,6 +139,15 @@ function MetricsInner({ projectId }: { projectId: number }) {
   const methods = methodsQuery.data ?? [];
   const risks = risksQuery.data ?? [];
   const deps = depsQuery.data ?? [];
+  const latestSnapshot = overview?.latestSnapshot;
+
+  const summary = latestSnapshot?.summary || {
+    javaFileCount: 0,
+    blankLines: 0,
+    commentLines: 0,
+    commentRate: 0,
+    totalLoc: 0
+  };
 
   if (overviewQuery.isLoading) {
     return (
@@ -180,6 +189,13 @@ function MetricsInner({ projectId }: { projectId: number }) {
 
       <section className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard label="总代码行" value={totalLoc.toLocaleString()} unit="LoC" />
+        <KpiCard label="Java 文件数" value={latestSnapshot?.summary.javaFileCount} unit="Files"
+        />
+        <KpiCard
+            label="注释率"
+            value={((latestSnapshot?.summary.commentRate ?? 0) * 100).toFixed(1)}
+            unit="%"
+        />
         <KpiCard label="类 / 接口" value={classes.length} />
         <KpiCard label="方法数" value={methods.length} />
         <KpiCard
@@ -194,6 +210,36 @@ function MetricsInner({ projectId }: { projectId: number }) {
           highRiskCount={overview?.highRiskCount ?? 0}
         />
       </section>
+
+      {/* --- 2. 插入：代码构成分布条 (建议独立成行) --- */}
+      <Card className="bg-muted/10 border-dashed">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+            <span>代码构成分布 (LoC Distribution)</span>
+            <div className="flex gap-4">
+              <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-blue-500"/> 代码</span>
+              <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"/> 注释</span>
+              <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-slate-400"/> 空白</span>
+            </div>
+          </div>
+
+          {/* 堆叠进度条逻辑 */}
+          <div className="flex h-2.5 w-full rounded-full overflow-hidden bg-muted/50 ring-1 ring-border">
+            <div
+                className="bg-blue-500 h-full transition-all"
+                style={{ width: `${(totalLoc / (totalLoc + (summary.commentLines) + (summary.blankLines)) * 100) || 0}%` }}
+            />
+            <div
+                className="bg-emerald-500 h-full transition-all"
+                style={{ width: `${(summary.commentLines / (totalLoc + (summary.commentLines) + (summary.blankLines)) * 100) || 0}%` }}
+            />
+            <div
+                className="bg-slate-400 h-full transition-all"
+                style={{ width: `${(summary.blankLines / (totalLoc + (summary.commentLines) + (summary.blankLines)) * 100) || 0}%` }}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <CkRadarCard classes={classes} />
