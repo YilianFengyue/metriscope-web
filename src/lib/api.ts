@@ -489,6 +489,119 @@ export interface McCallResponse {
   factors: McCallFactor[];
 }
 
+// ============== F11 · Refactor Prompt ==============
+
+export interface RefactorPromptResponse {
+  projectId: number;
+  snapshotId: number;
+  riskCount: number;
+  prompt: string;
+  targetClasses: string[];
+  generatedAt: string;
+}
+
+// ============== F12 · Quality Gate ==============
+
+export type QualityGateVerdict = "PASS" | "WARN" | "BLOCK";
+export type CheckDirection = "BETTER" | "SAME" | "WORSE";
+
+export interface QualityGateCheck {
+  metric: string;
+  metricLabel: string;
+  fromValue: number;
+  toValue: number;
+  delta: number;
+  direction: CheckDirection;
+  passed: boolean;
+  message: string;
+}
+
+export interface QualityGateRequest {
+  fromSnapshotId: number;
+  toSnapshotId: number;
+  source?: string;
+}
+
+export interface QualityGateResponse {
+  projectId: number;
+  fromSnapshotId: number;
+  toSnapshotId: number;
+  source: string;
+  verdict: QualityGateVerdict;
+  verdictLabel: string;
+  totalScore: number;
+  checks: QualityGateCheck[];
+  suggestion: string;
+}
+
+// ============== F-AI · Agent (analyze + chat) ==============
+
+export type AiAnalyzeMode =
+  | "QUALITY_REVIEW"
+  | "REFACTOR_ADVICE"
+  | "DEFENSE_SCRIPT"
+  | "TYPST_REPORT";
+
+export type AiProvider =
+  | "DEEPSEEK_COMPATIBLE"
+  | "DEEPSEEK"
+  | "OPENAI"
+  | "LOCAL_FALLBACK"
+  | string;
+
+/** 后端 9 类工具 + Quality Gate 工具 */
+export type AiUsedTool =
+  | "latest_snapshot"
+  | "risk_hotspots"
+  | "class_metrics"
+  | "method_metrics"
+  | "dependencies"
+  | "quality_trend"
+  | "code_smells"
+  | "mccall_quality"
+  | "ifpug_function_point"
+  | "quality_gate"
+  | string;
+
+export interface AiAnalyzeRequest {
+  snapshotId?: number;
+  mode?: AiAnalyzeMode;
+  fromSnapshotId?: number;
+  toSnapshotId?: number;
+}
+
+export interface AiAnalyzeResponse {
+  projectId: number;
+  snapshotId: number;
+  mode: AiAnalyzeMode;
+  provider: AiProvider;
+  model: string;
+  summary: string;
+  /** mode != TYPST_REPORT 时是 markdown；mode = TYPST_REPORT 时是 Typst 源码 */
+  markdown: string;
+  suggestions: string[];
+  usedTools: AiUsedTool[];
+  generatedAt: string;
+}
+
+export interface AiChatRequest {
+  snapshotId?: number;
+  message: string;
+  includeTools?: boolean;
+  fromSnapshotId?: number;
+  toSnapshotId?: number;
+}
+
+export interface AiChatResponse {
+  projectId: number;
+  snapshotId: number;
+  answer: string;
+  provider: AiProvider;
+  model: string;
+  usedTools: AiUsedTool[];
+  generatedAt: string;
+}
+
 // ============== F8 · Code Smell ==============
 
 export type CodeSmellType =
@@ -832,6 +945,47 @@ export const qualityApi = {
   codeSmells: (projectId: number, opts?: RequestOptions) =>
     get<CodeSmellsResponse>(
       `${PREFIX}/projects/${projectId}/code-smells`,
+      opts,
+    ),
+};
+
+export const qualityGateApi = {
+  evaluate: (
+    projectId: number,
+    body: QualityGateRequest,
+    opts?: RequestOptions,
+  ) =>
+    post<QualityGateResponse>(
+      `${PREFIX}/projects/${projectId}/quality-gates/evaluate`,
+      body,
+      opts,
+    ),
+};
+
+export const aiApi = {
+  refactorPrompt: (projectId: number, opts?: RequestOptions) =>
+    get<RefactorPromptResponse>(
+      `${PREFIX}/projects/${projectId}/ai/refactor-prompt`,
+      opts,
+    ),
+  analyze: (
+    projectId: number,
+    body: AiAnalyzeRequest,
+    opts?: RequestOptions,
+  ) =>
+    post<AiAnalyzeResponse>(
+      `${PREFIX}/projects/${projectId}/ai/analyze`,
+      body,
+      opts,
+    ),
+  chat: (
+    projectId: number,
+    body: AiChatRequest,
+    opts?: RequestOptions,
+  ) =>
+    post<AiChatResponse>(
+      `${PREFIX}/projects/${projectId}/ai/chat`,
+      body,
       opts,
     ),
 };

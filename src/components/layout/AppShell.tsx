@@ -9,6 +9,7 @@ import {
   GitBranch,
   GitCompare,
   History,
+  Plug,
   Settings,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -30,7 +31,8 @@ const navItems = [
   { to: "/diagrams", label: "图分析", icon: GitCompare },
   { to: "/history", label: "历史", icon: History },
   { to: "/reports", label: "报告", icon: FileText },
-  { to: "/mcp", label: "MCP", icon: Bot },
+  { to: "/ai", label: "AI 助手", icon: Bot },
+  { to: "/mcp", label: "MCP 调试", icon: Plug },
   { to: "/settings", label: "设置", icon: Settings },
 ] as const;
 

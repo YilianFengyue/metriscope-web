@@ -6,6 +6,7 @@ import MetricsPage from "@/pages/Metrics";
 import ClassDetailPage from "@/pages/ClassDetail";
 import DiagramsPage from "@/pages/Diagrams";
 import McpPage from "@/pages/Mcp";
+import AiPage from "@/pages/Ai";
 import HistoryPage from "@/pages/History";
 import ReportsPage from "@/pages/Reports";
 import SettingsPage from "@/pages/Settings";
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/metrics/class/:fqn" element={<ClassDetailPage />} />
         <Route path="/diagrams" element={<DiagramsPage />} />
         <Route path="/mcp" element={<McpPage />} />
+        <Route path="/ai" element={<AiPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/settings" element={<SettingsPage />} />

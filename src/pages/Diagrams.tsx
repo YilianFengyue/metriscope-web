@@ -295,7 +295,10 @@ function ConsistencyTab({
           </CardHeader>
           <CardContent className="space-y-2">
             {data.suggestions.map((s, i) => (
-              <Alert key={i} variant="info">
+              <Alert
+                key={i}
+                className="border-sky-300/60 bg-sky-50/60 text-sky-900 dark:bg-sky-950/30 dark:text-sky-100 dark:border-sky-900/60 [&>svg]:text-sky-600"
+              >
                 <Lightbulb className="h-4 w-4" />
                 <AlertTitle className="text-xs font-semibold">建议 {i + 1}</AlertTitle>
                 <AlertDescription className="text-xs">{s}</AlertDescription>
@@ -539,7 +542,7 @@ function InsightItemCard({ item }: { item: DiagramInsightItem }) {
         )}
 
         {item.warnings.length > 0 && (
-          <Alert variant="warning">
+          <Alert className="border-amber-300/60 bg-amber-50/60 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100 dark:border-amber-900/60 [&>svg]:text-amber-600">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle className="text-xs">告警 {item.warnings.length} 项</AlertTitle>
             <AlertDescription className="space-y-0.5 mt-1">

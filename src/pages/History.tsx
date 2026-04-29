@@ -27,6 +27,7 @@ import {
 import { useApp } from "@/stores/app";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { QualityGateCard } from "./ai/QualityGateCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -133,6 +134,11 @@ function HistoryInner({ projectId }: { projectId: number }) {
             setFromId={setFromId}
             setToId={setToId}
             compareQuery={compareQuery}
+          />
+          <QualityGateCard
+            projectId={projectId}
+            fromSnapshotId={fromId}
+            toSnapshotId={toId}
           />
           <TrendCard
             isLoading={trendQuery.isLoading}

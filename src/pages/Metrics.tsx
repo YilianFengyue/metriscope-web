@@ -37,6 +37,7 @@ import {
   Search,
   Shield,
   Shrink,
+  Sparkles,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -1525,9 +1526,24 @@ function RiskCenter({
             <AlertTriangle className="h-4 w-4 text-amber-500" />
             风险中心
           </CardTitle>
-          <span className="text-[11px] text-muted-foreground tabular-nums">
-            共 {risks.length} 项风险 · {codeSmells?.totalSmellCount ?? 0} 项坏味道 · 多视角排行
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {risks.length} 风险 · {codeSmells?.totalSmellCount ?? 0} 坏味道
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate("/ai?tab=prompt")}
+              className="h-7"
+              style={{
+                borderColor: "color-mix(in oklch, oklch(0.55 0.22 295) 30%, transparent)",
+              }}
+              title="跳到 AI 助手 → 重构 Prompt Tab"
+            >
+              <Sparkles className="h-3 w-3" style={{ color: "oklch(0.55 0.22 295)" }} />
+              <span className="text-xs">生成 AI Prompt</span>
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

@@ -12,7 +12,6 @@ import {
   Layers,
   ListChecks,
   Loader2,
-  Network,
   Play,
   Plug,
   RotateCcw,
@@ -126,6 +125,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   // 报告
   "report-draft": { category: "report", example: { projectId: 1 } },
   "report-draft-ai": { category: "report", example: { projectId: 1 } },
+  "refactor-prompt": { category: "report", example: { projectId: 1 } },
   // 估算
   "estimate-project": {
     category: "estimate",
@@ -727,7 +727,7 @@ function InvocationPanel({
 
           <TabsContent value="request" className="space-y-3 mt-4">
             {!isPost ? (
-              <Alert variant="info">
+              <Alert className="border-sky-300/60 bg-sky-50/60 text-sky-900 dark:bg-sky-950/30 dark:text-sky-100 dark:border-sky-900/60 [&>svg]:text-sky-600">
                 <Plug className="h-4 w-4" />
                 <AlertTitle>GET 请求</AlertTitle>
                 <AlertDescription>
