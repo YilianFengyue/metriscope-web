@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
@@ -80,11 +80,19 @@ export function QualityGateCard({
   toSnapshotId: number | null;
 }) {
   const navigate = useNavigate();
-  const [data, setData] = useState<QualityGateResponse | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const evaluate = useMutation({
-    mutationFn: () =>
+  const sameSnapshot =
+    fromSnapshotId != null &&
+    toSnapshotId != null &&
+    fromSnapshotId === toSnapshotId;
+  const enabled =
+    fromSnapshotId != null && toSnapshotId != null && !sameSnapshot;
+
+  // useQuery 自动缓存：相同 (projectId, from, to) 一次评估，结果留在 QueryClient，
+  // 切 Tab / 离开 /history 再回来都是命中缓存秒回；in-flight 请求也不被组件卸载打断。
+  const query = useQuery({
+    queryKey: ["quality-gate", projectId, fromSnapshotId, toSnapshotId, "AI_PATCH"],
+    queryFn: () =>
       qualityGateApi.evaluate(
         projectId,
         {
@@ -94,35 +102,15 @@ export function QualityGateCard({
         },
         { silent: true },
       ),
-    onSuccess: (res) => {
-      setData(res);
-      setErrorMsg(null);
-    },
-    onError: (e: Error) => {
-      setErrorMsg(e.message);
-      setData(null);
-    },
+    enabled,
+    retry: 0,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 
-  // 自动评估：from/to 变化且不同
-  useEffect(() => {
-    if (
-      fromSnapshotId == null ||
-      toSnapshotId == null ||
-      fromSnapshotId === toSnapshotId
-    ) {
-      setData(null);
-      setErrorMsg(null);
-      return;
-    }
-    evaluate.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromSnapshotId, toSnapshotId]);
-
-  const sameSnapshot =
-    fromSnapshotId != null &&
-    toSnapshotId != null &&
-    fromSnapshotId === toSnapshotId;
+  const data: QualityGateResponse | null = query.data ?? null;
+  const errorMsg = query.error ? (query.error as Error).message : null;
+  const isPending = query.isFetching;
 
   const goAiAnalyze = () => {
     if (!data) return;
@@ -162,10 +150,10 @@ export function QualityGateCard({
       <CardContent>
         {sameSnapshot ? (
           <EmptyState text="选两个不同的快照才能跑质量门禁评估。" />
-        ) : evaluate.isPending ? (
+        ) : isPending ? (
           <LoadingState />
         ) : errorMsg ? (
-          <ErrorState message={errorMsg} onRetry={() => evaluate.mutate()} />
+          <ErrorState message={errorMsg} onRetry={() => query.refetch()} />
         ) : !data ? (
           <EmptyState text="选择对比快照后将自动评估。" />
         ) : (

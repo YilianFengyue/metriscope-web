@@ -97,7 +97,6 @@ export function DependencyGraph({
         ? c.riskLevel === "HIGH" || c.riskLevel === "CRITICAL"
         : true,
     );
-    const idSet = new Set(filtered.map((c) => c.qualifiedName));
     const nodes: GraphNode[] = filtered.map((c) => ({
       id: c.qualifiedName,
       shortName: c.className,
@@ -109,18 +108,68 @@ export function DependencyGraph({
       loc: c.loc,
       classSize: c.classSize,
     }));
-    const links: GraphLink[] = deps
-      .filter(
-        (e) =>
-          idSet.has(e.fromClass) &&
-          idSet.has(e.toClass) &&
-          e.fromClass !== e.toClass,
-      )
-      .map((e) => ({
-        source: e.fromClass,
-        target: e.toClass,
+
+    // 宽松匹配：deps 里的 fromClass/toClass 可能是 FQN / 简单名 / 带泛型 / 带数组 / 内部类。
+    // 先建两张索引：FQN → node，shortName → node[]。
+    const fqnToNode = new Map<string, GraphNode>();
+    const simpleToNodes = new Map<string, GraphNode[]>();
+    for (const n of nodes) {
+      fqnToNode.set(n.id, n);
+      const list = simpleToNodes.get(n.shortName) ?? [];
+      list.push(n);
+      simpleToNodes.set(n.shortName, list);
+    }
+
+    function normalize(raw: string): string {
+      // 去掉泛型 List<Order> → List；去掉数组 Order[] → Order；trim
+      return raw
+        .replace(/<[^>]*>/g, "")
+        .replace(/\[\]/g, "")
+        .trim();
+    }
+
+    function resolve(name: string | null | undefined): GraphNode | null {
+      if (!name) return null;
+      const n = normalize(name);
+      // 1) 直接 FQN 命中
+      const direct = fqnToNode.get(n);
+      if (direct) return direct;
+      // 2) 取最后一段（包名后的 className 或 Outer.Inner 的 Inner）
+      const lastDot = n.lastIndexOf(".");
+      const tail = lastDot >= 0 ? n.slice(lastDot + 1) : n;
+      // 2a) 整段当 FQN 再试一次（处理某些后端只发简单名的情况）
+      if (lastDot >= 0) {
+        const tailNode = fqnToNode.get(tail);
+        if (tailNode) return tailNode;
+      }
+      // 3) 用简单名查；只有唯一匹配才接受，避免歧义
+      const matches = simpleToNodes.get(tail);
+      if (matches && matches.length === 1) return matches[0];
+      return null;
+    }
+
+    const links: GraphLink[] = [];
+    let dropped = 0;
+    for (const e of deps) {
+      const a = resolve(e.fromClass);
+      const b = resolve(e.toClass);
+      if (!a || !b) {
+        dropped += 1;
+        continue;
+      }
+      if (a.id === b.id) continue; // 自环
+      links.push({
+        source: a.id,
+        target: b.id,
         edgeType: e.edgeType,
-      }));
+      });
+    }
+    if (import.meta.env.DEV && deps.length > 0 && dropped > 0) {
+      // eslint-disable-next-line no-console
+      console.debug(
+        `[DependencyGraph] ${deps.length} deps in, ${links.length} resolved, ${dropped} dropped (unresolved class names)`,
+      );
+    }
     return { nodes, links };
   }, [classes, deps, showOnlyRisky]);
 

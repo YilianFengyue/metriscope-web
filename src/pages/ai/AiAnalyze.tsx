@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { marked } from "marked";
 import {
@@ -118,12 +118,28 @@ export function AiAnalyze({
       setSnapshotId(defaultSnapshotId);
   }, [defaultSnapshotId, snapshotId]);
 
-  const [data, setData] = useState<AiAnalyzeResponse | null>(null);
   const [pdfBuilding, setPdfBuilding] = useState(false);
   const [pdfDone, setPdfDone] = useState<string | null>(null);
 
-  const generate = useMutation({
-    mutationFn: () =>
+  const qc = useQueryClient();
+
+  // 把每组参数（projectId/snapshotId/mode/from/to）作为缓存 key —— 切 Tab/页面时
+  // 结果留在 QueryClient 全局缓存里，回来直接看到，不会重复请求。
+  const queryKey = useMemo(
+    () => [
+      "ai-analyze",
+      projectId,
+      snapshotId,
+      mode,
+      useFromTo ? fromId : null,
+      useFromTo ? toId : null,
+    ] as const,
+    [projectId, snapshotId, mode, useFromTo, fromId, toId],
+  );
+
+  const analyzeQuery = useQuery({
+    queryKey,
+    queryFn: () =>
       aiApi.analyze(
         projectId,
         {
@@ -134,29 +150,42 @@ export function AiAnalyze({
         },
         { silent: true },
       ),
-    onSuccess: (res) => {
-      setData(res);
-      // 写回 URL
-      const params = new URLSearchParams(searchParams);
-      params.set("tab", "analyze");
-      params.set("mode", mode);
-      if (useFromTo && fromId && toId) {
-        params.set("from", String(fromId));
-        params.set("to", String(toId));
-      }
-      setSearchParams(params, { replace: true });
-    },
-    onError: (e: Error) => {
-      toast.error(e.message ?? "AI 分析失败");
-    },
+    enabled: false, // 仅手动触发；Query 仍会做缓存
+    retry: 0,
+    staleTime: 30 * 60_000,
+    gcTime: 60 * 60_000,
   });
 
-  // 当从 /history 跳过来 (?from=&to=&mode=) 自动触发一次
-  useEffect(() => {
-    if (defaultMode && (defaultFrom != null || defaultSnapshotId != null)) {
-      // 一次性：仅初次挂载触发
-      generate.mutate();
+  const data: AiAnalyzeResponse | null = analyzeQuery.data ?? null;
+  const isGenerating = analyzeQuery.isFetching;
+
+  const generate = async () => {
+    try {
+      const res = await analyzeQuery.refetch({ throwOnError: true });
+      if (res.data) {
+        // 写回 URL
+        const params = new URLSearchParams(searchParams);
+        params.set("tab", "analyze");
+        params.set("mode", mode);
+        if (useFromTo && fromId && toId) {
+          params.set("from", String(fromId));
+          params.set("to", String(toId));
+        }
+        setSearchParams(params, { replace: true });
+      }
+    } catch (e) {
+      toast.error((e as Error).message ?? "AI 分析失败");
     }
+  };
+
+  // 当从 /history 跳过来 (?from=&to=&mode=) 且这组参数还没缓存时自动触发一次
+  useEffect(() => {
+    if (!defaultMode) return;
+    if (defaultFrom == null && defaultSnapshotId == null) return;
+    if (qc.getQueryData(queryKey)) return; // 已有缓存，无需重跑
+    analyzeQuery.refetch().catch(() => {
+      /* 错误已在 toast 里展示 */
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -352,11 +381,11 @@ export function AiAnalyze({
             )}
 
             <Button
-              onClick={() => generate.mutate()}
-              disabled={generate.isPending || (useFromTo && (!fromId || !toId))}
+              onClick={() => generate()}
+              disabled={isGenerating || (useFromTo && (!fromId || !toId))}
               className="ml-auto"
             >
-              {generate.isPending ? (
+              {isGenerating ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Sparkles className="h-4 w-4" />
@@ -368,7 +397,7 @@ export function AiAnalyze({
       </Card>
 
       {/* 结果 */}
-      {generate.isPending ? (
+      {isGenerating ? (
         <Card>
           <CardContent className="p-6 space-y-3">
             <Skeleton className="h-8 w-1/3" />

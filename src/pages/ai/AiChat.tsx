@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
   Eraser,
@@ -26,22 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useAiChat, type ChatMessage } from "@/stores/ai";
 import { AI_TOOL_META, getToolMeta, isLiveProvider } from "./AiToolMeta";
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-  /** 仅 assistant 有 */
-  usedTools?: AiUsedTool[];
-  provider?: string;
-  model?: string;
-  /** loading 中显示动画 */
-  pending?: boolean;
-  /** 错误时变红 */
-  error?: boolean;
-}
 
 const SUGGESTED_QUESTIONS = [
   "这个项目最大的问题是什么？",
@@ -49,6 +34,9 @@ const SUGGESTED_QUESTIONS = [
   "圈复杂度和耦合哪个更严重？",
   "给我一个 30 秒的项目质量总结",
 ];
+
+/** 稳定的空数组引用，避免 zustand selector 每次返回新引用导致无限重渲。 */
+const EMPTY_LIST: ChatMessage[] = [];
 
 const TOOL_CALL_PHASES = [
   { tool: "latest_snapshot" as const, label: "调用 latest_snapshot..." },
@@ -68,9 +56,23 @@ export function AiChat({
 }) {
   const [snapshotId, setSnapshotId] = useState<number | null>(defaultSnapshotId);
   const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingPhaseIdx, setLoadingPhaseIdx] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 消息历史从 zustand store 取（按 projectId 分桶）。即使切 Tab / 离开页面，
+  // 历史和正在 pending 的占位都还在；fire-and-forget Promise 会在请求结束时
+  // 直接 patch store，不依赖组件挂载状态。
+  const messages = useAiChat(
+    (s) => s.histories[projectId] ?? EMPTY_LIST,
+  );
+  const appendMessage = useAiChat((s) => s.appendMessage);
+  const patchMessage = useAiChat((s) => s.patchMessage);
+  const clearChat = useAiChat((s) => s.clearChat);
+
+  const hasPending = useMemo(
+    () => messages.some((m) => m.pending),
+    [messages],
+  );
 
   useEffect(() => {
     if (snapshotId == null && defaultSnapshotId != null) {
@@ -86,84 +88,77 @@ export function AiChat({
     });
   }, [messages]);
 
-  const send = useMutation({
-    mutationFn: (msg: string) =>
-      aiApi.chat(
-        projectId,
-        {
-          message: msg,
-          snapshotId: snapshotId ?? undefined,
-          includeTools: true,
-        },
-        { silent: true },
-      ),
-  });
-
-  // 工具调用动画：mutation 进行中时循环切换 phase
+  // 工具调用动画：有任意一条 pending 时循环切换 phase
   useEffect(() => {
-    if (!send.isPending) return;
+    if (!hasPending) return;
     setLoadingPhaseIdx(0);
     const t = setInterval(
       () => setLoadingPhaseIdx((i) => (i + 1) % TOOL_CALL_PHASES.length),
       900,
     );
     return () => clearInterval(t);
-  }, [send.isPending]);
+  }, [hasPending]);
 
-  const onSend = async (text?: string) => {
+  /**
+   * 发送消息：fire-and-forget Promise。组件卸载也不影响，
+   * .then/.catch 直接操作 store，确保消息回填。
+   */
+  const onSend = (text?: string) => {
     const msg = (text ?? draft).trim();
-    if (!msg || send.isPending) return;
+    if (!msg || hasPending) return;
     if (snapshotId == null) {
       toast.error("请先选择一个快照");
       return;
     }
     const ts = Date.now();
-    const userMsg: ChatMessage = {
+    const placeholderId = `a-${ts}`;
+    appendMessage(projectId, {
       id: `u-${ts}`,
       role: "user",
       content: msg,
       timestamp: ts,
-    };
-    const placeholder: ChatMessage = {
-      id: `a-${ts}`,
+    });
+    appendMessage(projectId, {
+      id: placeholderId,
       role: "assistant",
       content: "",
       timestamp: ts,
       pending: true,
-    };
-    setMessages((prev) => [...prev, userMsg, placeholder]);
+    });
     setDraft("");
 
-    try {
-      const res = await send.mutateAsync(msg);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === placeholder.id
-            ? {
-                ...m,
-                content: res.answer,
-                usedTools: res.usedTools,
-                provider: res.provider,
-                model: res.model,
-                pending: false,
-              }
-            : m,
-        ),
-      );
-    } catch (e) {
-      const msg = (e as Error).message ?? "AI 调用失败";
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === placeholder.id
-            ? { ...m, content: msg, pending: false, error: true }
-            : m,
-        ),
-      );
-    }
+    aiApi
+      .chat(
+        projectId,
+        {
+          message: msg,
+          snapshotId: snapshotId,
+          includeTools: true,
+        },
+        { silent: true },
+      )
+      .then((res) => {
+        patchMessage(projectId, placeholderId, {
+          content: res.answer,
+          usedTools: res.usedTools,
+          provider: res.provider,
+          model: res.model,
+          pending: false,
+        });
+      })
+      .catch((e) => {
+        const errMsg = (e as Error).message ?? "AI 调用失败";
+        patchMessage(projectId, placeholderId, {
+          content: errMsg,
+          pending: false,
+          error: true,
+        });
+        toast.error(`AI 对话失败: ${errMsg}`);
+      });
   };
 
   const onClear = () => {
-    setMessages([]);
+    clearChat(projectId);
   };
 
   return (
@@ -221,9 +216,7 @@ export function AiChat({
               key={m.id}
               message={m}
               loadingPhase={
-                m.pending && send.isPending
-                  ? TOOL_CALL_PHASES[loadingPhaseIdx]
-                  : null
+                m.pending ? TOOL_CALL_PHASES[loadingPhaseIdx] : null
               }
             />
           ))
@@ -239,7 +232,7 @@ export function AiChat({
                 key={q}
                 type="button"
                 onClick={() => onSend(q)}
-                disabled={send.isPending}
+                disabled={hasPending}
                 className="text-[10px] px-2 py-0.5 rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-40"
               >
                 {q}
@@ -260,14 +253,14 @@ export function AiChat({
             placeholder="问 AI 任何关于项目的问题... (Enter 发送 · Shift+Enter 换行)"
             rows={2}
             className="resize-none text-sm"
-            disabled={send.isPending}
+            disabled={hasPending}
           />
           <Button
             onClick={() => onSend()}
-            disabled={!draft.trim() || send.isPending || snapshotId == null}
+            disabled={!draft.trim() || hasPending || snapshotId == null}
             className="shrink-0"
           >
-            {send.isPending ? (
+            {hasPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />
