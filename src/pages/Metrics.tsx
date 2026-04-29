@@ -185,6 +185,13 @@ function MetricsInner({ projectId }: { projectId: number }) {
   const deps = depsQuery.data ?? [];
   const mccall = mccallQuery.data;
   const codeSmells = codeSmellsQuery.data;
+
+  // F9 可维护性评分 MI · 后端 API 还没就绪，先占位（朋友写完接口替换为 useQuery 即可）
+  const miData: {
+    averageScore?: number;
+    level?: string;
+    color?: "danger" | "warning" | "default";
+  } | null = null;
   const latestSnapshot = overview?.latestSnapshot;
 
   const summary: SnapshotSummary = latestSnapshot?.summary || {

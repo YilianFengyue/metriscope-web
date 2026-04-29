@@ -14,6 +14,9 @@ importers:
       '@fontsource-variable/geist-mono':
         specifier: ^5.1.0
         version: 5.2.7
+      '@myriaddreamin/typst.ts':
+        specifier: 0.7.0-rc2
+        version: 0.7.0-rc2
       '@radix-ui/react-accordion':
         specifier: ^1.2.12
         version: 1.2.12(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -429,6 +432,17 @@ packages:
 
   '@mermaid-js/parser@1.1.0':
     resolution: {integrity: sha512-gxK9ZX2+Fex5zu8LhRQoMeMPEHbc73UKZ0FQ54YrQtUxE1VVhMwzeNtKRPAu5aXks4FasbMe4xB4bWrmq6Jlxw==}
+
+  '@myriaddreamin/typst.ts@0.7.0-rc2':
+    resolution: {integrity: sha512-VM8JqsRcL3AEJ5cuPBn/YvnGTXK/BRPlxdGB2bR48Of/8OIGaPiunv2QfZBIMBBrtbTygUOtAY9BZvkS1AFqgA==}
+    peerDependencies:
+      '@myriaddreamin/typst-ts-renderer': ^0.7.0-rc2
+      '@myriaddreamin/typst-ts-web-compiler': ^0.7.0-rc2
+    peerDependenciesMeta:
+      '@myriaddreamin/typst-ts-renderer':
+        optional: true
+      '@myriaddreamin/typst-ts-web-compiler':
+        optional: true
 
   '@radix-ui/number@1.1.1':
     resolution: {integrity: sha512-MkKCwxlXTgz6CFoJx3pCwn07GKp36+aZyu/u2Ln2VrA5DcdyCZkASEDBTd8x5whTQQL5CiYf4prXKLcgQdv29g==}
@@ -1888,6 +1902,9 @@ packages:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
     engines: {node: '>=0.10.0'}
 
+  idb@7.1.1:
+    resolution: {integrity: sha512-gchesWBzyvGHRO9W8tzUWFDycow5gwjvFKfyV9FF32Y7F50yZMp7mP+T2mJIWFx49zicqyC4uefHM17o6xKIVQ==}
+
   internmap@1.0.1:
     resolution: {integrity: sha512-lDB5YccMydFBtasVtxnZ3MRBHuaoE8GKsppq+EchKL2U4nK/DmEpPHNH8MZe5HkMtpSiTSOZwfN0tzYjO/lJEw==}
 
@@ -2656,6 +2673,10 @@ snapshots:
   '@mermaid-js/parser@1.1.0':
     dependencies:
       langium: 4.2.2
+
+  '@myriaddreamin/typst.ts@0.7.0-rc2':
+    dependencies:
+      idb: 7.1.1
 
   '@radix-ui/number@1.1.1': {}
 
@@ -4138,6 +4159,8 @@ snapshots:
   iconv-lite@0.6.3:
     dependencies:
       safer-buffer: 2.1.2
+
+  idb@7.1.1: {}
 
   internmap@1.0.1: {}
 

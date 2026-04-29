@@ -587,7 +587,7 @@ function ResultView({
               ? "编译 Typst → PDF…"
               : pdfDone
                 ? "已下载，再来一份"
-                : "AI + Typst → 漂亮 PDF"}
+                : "AI + Typst → PDF"}
           </Button>
         </div>
         {pdfBuilding && (
