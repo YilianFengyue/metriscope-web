@@ -166,6 +166,10 @@ export interface OverviewResponse {
   latestAnalysisStartedAt: string | null;
   highRiskCount: number;
   qualityGrade: string | null;
+  latestSnapshot?: {
+    id: number;
+    summary: SnapshotSummary;
+  };
 }
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -226,6 +230,10 @@ export interface SnapshotSummary {
   methodCount: number;
   averageComplexity: number;
   highRiskCount: number;
+  javaFileCount: number;
+  blankLines: number;
+  commentLines: number;
+  commentRate: number;
 }
 
 export interface SnapshotResponse {
@@ -359,6 +367,8 @@ export interface EstimateResponse {
 export const systemApi = {
   ping: (opts?: RequestOptions) =>
     get<SystemPingResponse>(`${PREFIX}/system/ping`, { silent: true, ...opts }),
+  browse: (path?: string, opts?: RequestOptions) =>
+      get<string[]>(`${PREFIX}/system/browse?path=${encodeURIComponent(path || "")}`, opts),
 };
 
 export const projectsApi = {

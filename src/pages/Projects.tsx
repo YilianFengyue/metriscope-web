@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import {
   projectsApi,
   type DiagramType,
-  type ProjectResponse,
+  type ProjectResponse, systemApi,
 } from "@/lib/api";
 import { useApp } from "@/stores/app";
 import { cn } from "@/lib/utils";
@@ -332,64 +332,96 @@ function UploadSourceDialog({
 }) {
   const qc = useQueryClient();
   const [path, setPath] = useState("");
+  const { data: dirs, isLoading: isBrowsing } = useQuery({
+    queryKey: ["system-browse", path],
+    queryFn: () => systemApi.browse(path),
+    enabled: open,
+    retry: false,
+  });
 
   const submit = useMutation({
     mutationFn: () => projectsApi.uploadSource(projectId, { sourcePath: path }),
     onSuccess: (rec) => {
       toast.success("源码已注册", { description: rec.reference });
       qc.invalidateQueries({ queryKey: ["projects"] });
-      qc.invalidateQueries({ queryKey: ["imports", projectId] });
       onOpenChange(false);
       setPath("");
     },
   });
 
+  // 处理返回上一级目录
+  const handleGoBack = () => {
+    if (!path) return;
+    const parts = path.split('/').filter(Boolean);
+    if (parts.length <= 1) {
+      setPath(""); // 回到根目录选择盘符
+    } else {
+      setPath(path.substring(0, path.lastIndexOf('/', path.length - 2) + 1));
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>上传源码</DialogTitle>
-          <DialogDescription>
-            填入<strong>后端可访问</strong>的绝对路径（Java 源码目录）。后端会扫描 .java
-            文件。Windows 路径用 / 分隔。
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="src-path">源码目录</Label>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>上传源码</DialogTitle>
+            <DialogDescription>
+              请从下方列表中逐级点击选择目录。当前选定：<span className="font-mono text-primary">{path || "根目录"}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* 输入框允许微调路径 */}
             <Input
-              id="src-path"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="F:/path/to/src/main/java"
-              className="font-mono text-xs"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="正在从根目录开始浏览..."
+                className="font-mono text-xs"
             />
+
+            {/* 交互式目录浏览器容器 */}
+            <div className="flex flex-col border rounded-lg overflow-hidden bg-card">
+              <div className="px-3 py-2 bg-muted/50 border-b flex justify-between items-center text-[11px] font-bold">
+                <span className="text-muted-foreground uppercase tracking-wider">选择子目录</span>
+                {path && (
+                    <Button variant="link" size="sm" className="h-auto p-0 text-[11px]" onClick={handleGoBack}>
+                      返回上级
+                    </Button>
+                )}
+              </div>
+
+              {/* 关键：固定高度 + 自动滚动，防止按钮被挤走 */}
+              <div className="h-[200px] overflow-y-auto p-1 bg-muted/10">
+                {isBrowsing ? (
+                    <div className="p-4 text-center text-xs text-muted-foreground">正在加载文件系统...</div>
+                ) : dirs && dirs.length > 0 ? (
+                    dirs.map((d) => (
+                        <button
+                            key={d}
+                            className="w-full text-left text-[11px] font-mono p-2 hover:bg-accent rounded flex items-center gap-2 truncate transition-colors"
+                            onClick={() => setPath(d)}
+                        >
+                          <span>📁</span>
+                          <span className="truncate">{d}</span>
+                        </button>
+                    ))
+                ) : (
+                    <div className="p-4 text-center text-xs text-muted-foreground italic">未发现文件夹</div>
+                )}
+              </div>
+            </div>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-xs h-auto py-1 -ml-2"
-            onClick={() => setPath(SAMPLE_SOURCE)}
-          >
-            <ChevronRight className="h-3 w-3" />
-            填入测试样例路径
-          </Button>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
-          </Button>
-          <Button
-            onClick={() => submit.mutate()}
-            disabled={!path.trim() || submit.isPending}
-          >
-            {submit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            上传
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+          {/* 按钮区域：由于上面容器固定了高度，这里会一直保持在底部 */}
+          <DialogFooter className="pt-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+            <Button onClick={() => submit.mutate()} disabled={!path.trim() || submit.isPending}>
+              {submit.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              确认上传当前目录
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
   );
 }
 
@@ -406,9 +438,16 @@ function UploadDiagramDialog({
   const [diagramPath, setDiagramPath] = useState("");
   const [diagramType, setDiagramType] = useState<DiagramType>("CLASS");
 
+  const { data: dirs, isLoading: isBrowsing } = useQuery({
+    queryKey: ["system-browse-diag", diagramPath],
+    queryFn: () => systemApi.browse(diagramPath),
+    enabled: open, // 弹窗打开即允许查询，空路径后端应返回盘符列表
+    retry: false,
+  });
+
   const submit = useMutation({
     mutationFn: () =>
-      projectsApi.uploadDiagram(projectId, { diagramPath, diagramType }),
+        projectsApi.uploadDiagram(projectId, { diagramPath, diagramType }),
     onSuccess: (rec) => {
       toast.success("图已上传", { description: rec.reference });
       qc.invalidateQueries({ queryKey: ["imports", projectId] });
@@ -417,76 +456,115 @@ function UploadDiagramDialog({
     },
   });
 
+  const handleGoBack = () => {
+    if (!diagramPath) return;
+    const path = diagramPath.replace(/\\/g, '/');
+    const parts = path.split('/').filter(Boolean);
+    if (parts.length <= 1) {
+      setDiagramPath("");
+    } else {
+      const lastIdx = path.lastIndexOf('/', path.length - 2);
+      setDiagramPath(path.substring(0, lastIdx + 1));
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>上传设计图</DialogTitle>
-          <DialogDescription>
-            支持 PlantUML / Mermaid / PowerDesigner。后端按路径读取本地文件。
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label>类型</Label>
-            <Select
-              value={diagramType}
-              onValueChange={(v) => setDiagramType(v as DiagramType)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="CLASS">类图 (CLASS)</SelectItem>
-                <SelectItem value="USE_CASE">用例图 (USE_CASE)</SelectItem>
-                <SelectItem value="ACTIVITY">活动图 (ACTIVITY)</SelectItem>
-                <SelectItem value="PUML">PlantUML 通用</SelectItem>
-                <SelectItem value="MERMAID">Mermaid</SelectItem>
-                <SelectItem value="POWERDESIGNER">PowerDesigner</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="diag-path">图文件路径</Label>
-            <Input
-              id="diag-path"
-              value={diagramPath}
-              onChange={(e) => setDiagramPath(e.target.value)}
-              placeholder="F:/path/to/class-diagram.puml"
-              className="font-mono text-xs"
-            />
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {SAMPLE_DIAGRAMS.map((s) => (
-              <Button
-                key={s.type}
-                size="sm"
-                variant="ghost"
-                className="text-xs h-7"
-                onClick={() => {
-                  setDiagramType(s.type);
-                  setDiagramPath(s.path);
-                }}
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-xl"> {}
+          <DialogHeader>
+            <DialogTitle>上传设计图</DialogTitle>
+            <DialogDescription>
+              支持从下方列表逐级选择目录，或直接输入文件完整路径。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>类型</Label>
+              <Select
+                  value={diagramType}
+                  onValueChange={(v) => setDiagramType(v as DiagramType)}
               >
-                填入{s.label}
-              </Button>
-            ))}
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CLASS">类图 (CLASS)</SelectItem>
+                  <SelectItem value="USE_CASE">用例图 (USE_CASE)</SelectItem>
+                  <SelectItem value="ACTIVITY">活动图 (ACTIVITY)</SelectItem>
+                  <SelectItem value="PUML">PlantUML 通用</SelectItem>
+                  <SelectItem value="MERMAID">Mermaid</SelectItem>
+                  <SelectItem value="POWERDESIGNER">PowerDesigner</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="diag-path">文件路径</Label>
+              <Input
+                  id="diag-path"
+                  value={diagramPath}
+                  onChange={(e) => setDiagramPath(e.target.value)}
+                  placeholder="正在浏览..."
+                  className="font-mono text-xs"
+              />
+
+              {}
+              <div className="mt-2 border rounded-lg overflow-hidden bg-card text-xs">
+                <div className="px-3 py-2 bg-muted/50 border-b flex justify-between items-center font-bold">
+                  <span className="text-muted-foreground uppercase tracking-wider">选择子目录 / 文件</span>
+                  {diagramPath && (
+                      <Button variant="link" size="sm" className="h-auto p-0 text-[11px]" onClick={handleGoBack}>
+                        返回上级
+                      </Button>
+                  )}
+                </div>
+
+                {}
+                <div className="h-[180px] overflow-y-auto p-1 bg-muted/10 font-mono">
+                  {isBrowsing ? (
+                      <div className="p-4 text-center text-muted-foreground">加载中...</div>
+                  ) : dirs && dirs.length > 0 ? (
+                      dirs.map((d) => {
+                        const isFile = d.match(/\.(puml|mmd|xml|json|oom)$/i);
+                        const displayName = d.endsWith(':/') ? d : d.split('/').pop();
+                        return (
+                            <button
+                                key={d}
+                                type="button"
+                                className="w-full text-left p-2 hover:bg-accent rounded flex items-center gap-2 truncate transition-colors"
+                                onClick={() => setDiagramPath(d)}
+                            >
+                              <span className="shrink-0">{isFile ? "📄" : "📁"}</span>
+                              <span className={cn("truncate text-[11px]", isFile && "text-primary font-medium")}>
+                              {displayName || d} {}
+                              </span>
+                            </button>
+                        );
+                      })
+                  ) : (
+                      <div className="p-4 text-center text-muted-foreground italic">无子内容</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {}
           </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
-          </Button>
-          <Button
-            onClick={() => submit.mutate()}
-            disabled={!diagramPath.trim() || submit.isPending}
-          >
-            {submit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            上传
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+          <DialogFooter className="mt-2 border-t pt-4"> {}
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              取消
+            </Button>
+            <Button
+                onClick={() => submit.mutate()}
+                disabled={!diagramPath.trim() || submit.isPending}
+            >
+              {submit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              确认上传
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
   );
 }
 
