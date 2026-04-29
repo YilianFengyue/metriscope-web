@@ -195,6 +195,10 @@ export interface ClassMetricResponse {
   numberOfOperations: number;
   numberOfAttributes: number;
   specializationIndex: number;
+  /** F7：类内方法平均认知复杂度 */
+  averageCognitiveComplexity: number;
+  /** F7：类内方法最大认知复杂度 */
+  maxCognitiveComplexity: number;
   riskLevel: RiskLevel;
 }
 
@@ -205,6 +209,8 @@ export interface MethodMetricResponse {
   parameterCount: number;
   loc: number;
   cyclomaticComplexity: number;
+  /** F7：方法认知复杂度 */
+  cognitiveComplexity: number;
   riskLevel: RiskLevel;
   startLine: number;
   endLine: number;
@@ -439,6 +445,86 @@ export interface McpToolDescriptor {
   description: string;
   method: "GET" | "POST";
   path: string;
+}
+
+// ============== F6 · McCall Quality Model ==============
+
+export type McCallFactorCode =
+  | "MAINTAINABILITY"
+  | "RELIABILITY"
+  | "TESTABILITY"
+  | "EFFICIENCY"
+  | "REUSABILITY"
+  | "FLEXIBILITY";
+
+export type QualityGrade = "A" | "B" | "C" | "D";
+
+export interface McCallMetric {
+  metricName: string;
+  metricLabel: string;
+  rawValue: number;
+  normalizedScore: number;
+  weight: number;
+}
+
+export interface McCallCriterion {
+  criteria: string;
+  criteriaName: string;
+  score: number;
+  metrics: McCallMetric[];
+}
+
+export interface McCallFactor {
+  factor: McCallFactorCode;
+  factorName: string;
+  score: number;
+  criteria: McCallCriterion[];
+}
+
+export interface McCallResponse {
+  projectId: number;
+  snapshotId: number;
+  overallScore: number;
+  grade: QualityGrade;
+  factors: McCallFactor[];
+}
+
+// ============== F8 · Code Smell ==============
+
+export type CodeSmellType =
+  | "LONG_METHOD"
+  | "COMPLEX_METHOD"
+  | "HIGH_COGNITIVE_COMPLEXITY"
+  | "LONG_PARAMETER_LIST"
+  | "LARGE_CLASS"
+  | "GOD_CLASS"
+  | "HIGH_COUPLING"
+  | "LOW_COHESION"
+  | "DEEP_INHERITANCE"
+  | "LARGE_RESPONSE_SET";
+
+export type CodeSmellSeverity = "MEDIUM" | "HIGH";
+
+export interface CodeSmellItem {
+  smellType: CodeSmellType;
+  smellName: string;
+  targetType: "CLASS" | "METHOD";
+  targetName: string;
+  severity: CodeSmellSeverity;
+  triggerMetric: string;
+  triggerValue: number;
+  threshold: number;
+  debtMinutes: number;
+  suggestion: string;
+}
+
+export interface CodeSmellsResponse {
+  projectId: number;
+  snapshotId: number;
+  totalSmellCount: number;
+  totalDebtHours: number;
+  smellsByType: Partial<Record<CodeSmellType, number>>;
+  items: CodeSmellItem[];
 }
 
 // ============== F14 · IFPUG Function Point Assessment ==============
@@ -719,6 +805,19 @@ export const diagramsApi = {
   summary: (projectId: number, opts?: RequestOptions) =>
     get<DiagramSummaryResponse>(
       `${PREFIX}/projects/${projectId}/diagram-summary`,
+      opts,
+    ),
+};
+
+export const qualityApi = {
+  mccall: (projectId: number, opts?: RequestOptions) =>
+    get<McCallResponse>(
+      `${PREFIX}/projects/${projectId}/quality/mccall`,
+      opts,
+    ),
+  codeSmells: (projectId: number, opts?: RequestOptions) =>
+    get<CodeSmellsResponse>(
+      `${PREFIX}/projects/${projectId}/code-smells`,
       opts,
     ),
 };

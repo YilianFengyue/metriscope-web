@@ -22,11 +22,15 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  Brain,
+  Bug,
   ChevronRight,
+  Clock,
   Inbox,
   Layers3,
   Network,
   Package,
+  Shield,
   ShieldAlert,
   Sparkles,
   Sigma,
@@ -34,7 +38,9 @@ import {
 } from "lucide-react";
 import {
   metricsApi,
+  qualityApi,
   type ClassMetricResponse,
+  type CodeSmellItem,
   type DependencyEdgeResponse,
   type MethodMetricResponse,
   type RiskItemResponse,
@@ -239,6 +245,11 @@ function ClassDetailInner({
     queryFn: () => metricsApi.risks(projectId, { silent: true }),
     retry: 0,
   });
+  const codeSmellsQuery = useQuery({
+    queryKey: ["code-smells", projectId],
+    queryFn: () => qualityApi.codeSmells(projectId, { silent: true }),
+    retry: 0,
+  });
 
   const allClasses = classesQuery.data ?? [];
   const cls = useMemo(
@@ -278,6 +289,16 @@ function ClassDetailInner({
         ),
     [risksQuery.data, fqn],
   );
+
+  const classSmells = useMemo(() => {
+    const all = codeSmellsQuery.data?.items ?? [];
+    return all.filter(
+      (s) =>
+        s.targetName === fqn ||
+        s.targetName.startsWith(fqn + "#") ||
+        s.targetName.startsWith(fqn + "."),
+    );
+  }, [codeSmellsQuery.data, fqn]);
 
   if (
     classesQuery.isLoading ||
@@ -324,6 +345,11 @@ function ClassDetailInner({
       </section>
 
       <MethodComplexityCard methods={methods} />
+
+      <ClassCodeSmellCard
+        smells={classSmells}
+        loading={codeSmellsQuery.isLoading}
+      />
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <DependenciesCard
@@ -448,7 +474,13 @@ function KpiStrip({
   cls: ClassMetricResponse;
   methodCount: number;
 }) {
-  const items = [
+  const items: Array<{
+    label: string;
+    value: string;
+    unit?: string;
+    tone?: "default" | "warning" | "danger";
+    accent?: string; // 自定义文本色
+  }> = [
     { label: "代码行", value: cls.loc.toLocaleString(), unit: "LoC" },
     { label: "方法数", value: methodCount.toString() },
     { label: "字段数", value: cls.fieldCount.toString() },
@@ -472,10 +504,20 @@ function KpiStrip({
             ? "warning"
             : "default",
     },
-  ] as const;
+    {
+      label: "平均认知",
+      value: cls.averageCognitiveComplexity.toFixed(2),
+      accent: "oklch(0.6 0.16 200)",
+    },
+    {
+      label: "最大认知",
+      value: cls.maxCognitiveComplexity.toFixed(0),
+      accent: "oklch(0.6 0.16 200)",
+    },
+  ];
 
   return (
-    <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <section className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
       {items.map((it) => (
         <Card key={it.label} className="overflow-hidden">
           <CardContent className="p-4 space-y-1">
@@ -486,13 +528,14 @@ function KpiStrip({
               <span
                 className={cn(
                   "text-2xl font-semibold tabular-nums",
-                  "tone" in it && it.tone === "warning" && "text-amber-600",
-                  "tone" in it && it.tone === "danger" && "text-rose-600",
+                  it.tone === "warning" && !it.accent && "text-amber-600",
+                  it.tone === "danger" && !it.accent && "text-rose-600",
                 )}
+                style={it.accent ? { color: it.accent } : undefined}
               >
                 {it.value}
               </span>
-              {"unit" in it && it.unit && (
+              {it.unit && (
                 <span className="text-xs text-muted-foreground">{it.unit}</span>
               )}
             </div>
@@ -767,6 +810,9 @@ function LkProgressCard({
 // 方法复杂度分析
 // ============================================================================
 
+const CYCLOMATIC_COLOR_CD = "oklch(0.6 0.22 25)";
+const COGNITIVE_COLOR_CD = "oklch(0.6 0.16 200)";
+
 function MethodComplexityCard({ methods }: { methods: MethodMetricResponse[] }) {
   const top = useMemo(() => methods.slice(0, 12), [methods]);
 
@@ -781,6 +827,7 @@ function MethodComplexityCard({ methods }: { methods: MethodMetricResponse[] }) 
               : m.methodName,
           fullName: m.methodName,
           cyclomaticComplexity: m.cyclomaticComplexity,
+          cognitiveComplexity: m.cognitiveComplexity,
           loc: m.loc,
           paramCount: m.parameterCount,
           riskLevel: m.riskLevel,
@@ -800,8 +847,24 @@ function MethodComplexityCard({ methods }: { methods: MethodMetricResponse[] }) 
               方法复杂度分析
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              共 {methods.length} 个方法，按 McCabe 圈复杂度降序
+              共 {methods.length} 个方法，按 McCabe 圈复杂度降序 · 圈 vs 认知双柱对比
             </p>
+          </div>
+          <div className="flex items-center gap-3 text-[11px]">
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <span
+                className="h-2 w-2 rounded-sm"
+                style={{ background: CYCLOMATIC_COLOR_CD }}
+              />
+              圈复杂度
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <span
+                className="h-2 w-2 rounded-sm"
+                style={{ background: COGNITIVE_COLOR_CD }}
+              />
+              认知复杂度
+            </span>
           </div>
         </div>
       </CardHeader>
@@ -820,13 +883,14 @@ function MethodComplexityCard({ methods }: { methods: MethodMetricResponse[] }) 
             <TabsContent value="chart" className="pt-4">
               <ResponsiveContainer
                 width="100%"
-                height={Math.max(220, chartData.length * 30)}
+                height={Math.max(260, chartData.length * 36)}
               >
                 <BarChart
                   data={chartData}
                   layout="vertical"
                   margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
-                  barCategoryGap={6}
+                  barCategoryGap={8}
+                  barGap={2}
                 >
                   <CartesianGrid
                     strokeDasharray="3 3"
@@ -857,14 +921,35 @@ function MethodComplexityCard({ methods }: { methods: MethodMetricResponse[] }) 
                     content={({ active, payload }) => {
                       if (!active || !payload?.length) return null;
                       const p = payload[0].payload as (typeof chartData)[number];
+                      const diff = p.cognitiveComplexity - p.cyclomaticComplexity;
                       return (
                         <div className="rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-md">
                           <div className="font-mono font-medium mb-1.5">
                             {p.fullName}
                           </div>
                           <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 tabular-nums font-mono text-[11px]">
-                            <dt className="text-muted-foreground">圈复杂度</dt>
+                            <dt
+                              className="text-muted-foreground"
+                              style={{ color: CYCLOMATIC_COLOR_CD }}
+                            >
+                              圈复杂度
+                            </dt>
                             <dd className="font-medium">{p.cyclomaticComplexity}</dd>
+                            <dt
+                              className="text-muted-foreground"
+                              style={{ color: COGNITIVE_COLOR_CD }}
+                            >
+                              认知复杂度
+                            </dt>
+                            <dd className="font-medium">
+                              {p.cognitiveComplexity}
+                              {diff !== 0 && (
+                                <span className="ml-1 text-[10px] text-muted-foreground">
+                                  ({diff > 0 ? "+" : ""}
+                                  {diff})
+                                </span>
+                              )}
+                            </dd>
                             <dt className="text-muted-foreground">代码行</dt>
                             <dd>{p.loc}</dd>
                             <dt className="text-muted-foreground">参数</dt>
@@ -887,11 +972,18 @@ function MethodComplexityCard({ methods }: { methods: MethodMetricResponse[] }) 
                       );
                     }}
                   />
-                  <Bar dataKey="cyclomaticComplexity" radius={[0, 4, 4, 0]}>
-                    {chartData.map((d, i) => (
-                      <Cell key={i} fill={RISK_FILL[d.riskLevel]} />
-                    ))}
-                  </Bar>
+                  <Bar
+                    dataKey="cyclomaticComplexity"
+                    name="圈复杂度"
+                    fill={CYCLOMATIC_COLOR_CD}
+                    radius={[0, 4, 4, 0]}
+                  />
+                  <Bar
+                    dataKey="cognitiveComplexity"
+                    name="认知复杂度"
+                    fill={COGNITIVE_COLOR_CD}
+                    radius={[0, 4, 4, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </TabsContent>
@@ -903,7 +995,18 @@ function MethodComplexityCard({ methods }: { methods: MethodMetricResponse[] }) 
                     <TableHead>返回类型</TableHead>
                     <TableHead className="text-right">参数</TableHead>
                     <TableHead className="text-right">LoC</TableHead>
-                    <TableHead className="text-right">圈复杂度</TableHead>
+                    <TableHead
+                      className="text-right"
+                      style={{ color: CYCLOMATIC_COLOR_CD }}
+                    >
+                      圈
+                    </TableHead>
+                    <TableHead
+                      className="text-right"
+                      style={{ color: COGNITIVE_COLOR_CD }}
+                    >
+                      认知
+                    </TableHead>
                     <TableHead className="text-right">行号</TableHead>
                     <TableHead>风险</TableHead>
                   </TableRow>
@@ -923,8 +1026,17 @@ function MethodComplexityCard({ methods }: { methods: MethodMetricResponse[] }) 
                       <TableCell className="text-right tabular-nums font-mono text-xs">
                         {m.loc}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums font-mono text-xs font-medium">
+                      <TableCell
+                        className="text-right tabular-nums font-mono text-xs font-medium"
+                        style={{ color: CYCLOMATIC_COLOR_CD }}
+                      >
                         {m.cyclomaticComplexity}
+                      </TableCell>
+                      <TableCell
+                        className="text-right tabular-nums font-mono text-xs font-medium"
+                        style={{ color: COGNITIVE_COLOR_CD }}
+                      >
+                        {m.cognitiveComplexity}
                       </TableCell>
                       <TableCell className="text-right tabular-nums font-mono text-[11px] text-muted-foreground">
                         {m.startLine}-{m.endLine}
@@ -940,6 +1052,111 @@ function MethodComplexityCard({ methods }: { methods: MethodMetricResponse[] }) 
               </Table>
             </TabsContent>
           </Tabs>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================================
+// 本类坏味道（F8）
+// ============================================================================
+
+function ClassCodeSmellCard({
+  smells,
+  loading,
+}: {
+  smells: CodeSmellItem[];
+  loading: boolean;
+}) {
+  if (loading) return null; // 静默载入，避免占位闪烁
+  const high = smells.filter((s) => s.severity === "HIGH").length;
+  const totalDebt = smells.reduce((s, x) => s + x.debtMinutes, 0);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Bug className="h-4 w-4 text-rose-500" />
+              本类坏味道
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {smells.length === 0
+                ? "未触发任何代码坏味道规则"
+                : `命中 ${smells.length} 项，HIGH ${high} 项 · 技术债 ${(totalDebt / 60).toFixed(1)}h`}
+            </p>
+          </div>
+          {smells.length > 0 && (
+            <Badge
+              variant="outline"
+              className="text-[10px]"
+              style={{
+                color: "oklch(0.6 0.22 25)",
+                borderColor: "oklch(0.6 0.22 25)",
+              }}
+            >
+              <Clock className="h-3 w-3 mr-1" />
+              {(totalDebt / 60).toFixed(1)} 小时债
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {smells.length === 0 ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-800 flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="font-medium">该类未触发坏味道规则 🎉</span>
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {smells.map((s, i) => {
+              const sevColor =
+                s.severity === "HIGH"
+                  ? "oklch(0.6 0.22 25)"
+                  : "oklch(0.7 0.17 75)";
+              const isMethod = s.targetType === "METHOD";
+              const methodPart = isMethod
+                ? s.targetName.slice(s.targetName.indexOf("#") + 1)
+                : "";
+              return (
+                <li
+                  key={i}
+                  className="rounded-md border border-border bg-muted/20 p-3 flex items-start gap-3"
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full mt-2 shrink-0"
+                    style={{ background: sevColor }}
+                  />
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{s.smellName}</span>
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] font-mono"
+                        style={{ color: sevColor, borderColor: sevColor }}
+                      >
+                        {s.severity}
+                      </Badge>
+                      {isMethod && (
+                        <Badge variant="outline" className="text-[9px]">
+                          方法 · {methodPart}
+                        </Badge>
+                      )}
+                      <span className="text-[11px] text-muted-foreground ml-auto tabular-nums font-mono">
+                        {s.triggerMetric} {s.triggerValue} / {s.threshold} ·{" "}
+                        {s.debtMinutes}m
+                      </span>
+                    </div>
+                    <div className="text-[12px] text-muted-foreground leading-relaxed">
+                      {s.suggestion}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </CardContent>
     </Card>

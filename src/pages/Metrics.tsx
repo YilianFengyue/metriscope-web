@@ -20,23 +20,37 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowUpRight,
+  Brain,
+  Bug,
+  ChevronDown,
+  ChevronUp,
+  Clock,
   FileCode2,
   Files,
   Filter,
+  Flame,
   Gauge,
   Inbox,
   Link2,
   Maximize2,
   Network,
   Search,
+  Shield,
   Shrink,
+  TrendingDown,
   TrendingUp,
 } from "lucide-react";
 import {
   metricsApi,
+  qualityApi,
   type ClassMetricResponse,
+  type CodeSmellItem,
+  type CodeSmellsResponse,
   type DependencyEdgeResponse,
+  type McCallFactorCode,
+  type McCallResponse,
   type MethodMetricResponse,
+  type QualityGrade,
   type RiskItemResponse,
   type RiskLevel,
   type SnapshotSummary,
@@ -45,6 +59,12 @@ import { useApp } from "@/stores/app";
 import { cn } from "@/lib/utils";
 import { DependencyGraph } from "@/components/charts/DependencyGraph";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -144,12 +164,26 @@ function MetricsInner({ projectId }: { projectId: number }) {
     retry: 0,
   });
 
+  const mccallQuery = useQuery({
+    queryKey: ["quality-mccall", projectId],
+    queryFn: () => qualityApi.mccall(projectId, { silent: true }),
+    retry: 0,
+  });
+
+  const codeSmellsQuery = useQuery({
+    queryKey: ["code-smells", projectId],
+    queryFn: () => qualityApi.codeSmells(projectId, { silent: true }),
+    retry: 0,
+  });
+
   const overview = overviewQuery.data;
   const isAnalyzed = (overview?.analysisCount ?? 0) > 0;
   const classes = classesQuery.data ?? [];
   const methods = methodsQuery.data ?? [];
   const risks = risksQuery.data ?? [];
   const deps = depsQuery.data ?? [];
+  const mccall = mccallQuery.data;
+  const codeSmells = codeSmellsQuery.data;
   const latestSnapshot = overview?.latestSnapshot;
 
   const summary: SnapshotSummary = latestSnapshot?.summary || {
@@ -226,6 +260,12 @@ function MetricsInner({ projectId }: { projectId: number }) {
         />
       </section>
 
+      <McCallScoreCard
+        mccall={mccall}
+        loading={mccallQuery.isLoading}
+        error={mccallQuery.error as Error | null}
+      />
+
       <CodeAnatomyCard summary={summary} totalLoc={totalLoc} />
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -240,7 +280,12 @@ function MetricsInner({ projectId }: { projectId: number }) {
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
-          <RiskCenter risks={risks} classes={classes} methods={methods} />
+          <RiskCenter
+            risks={risks}
+            classes={classes}
+            methods={methods}
+            codeSmells={codeSmells}
+          />
         </div>
         <DependencySummaryCard deps={deps} classes={classes} />
       </section>
@@ -415,38 +460,69 @@ function CkRadarCard({ classes }: { classes: ClassMetricResponse[] }) {
   );
 }
 
+const COGNITIVE_COLOR = "oklch(0.6 0.16 200)"; // 海蓝
+const CYCLOMATIC_COLOR = "oklch(0.6 0.22 25)"; // 鲜红
+
 function ComplexityHistogramCard({
   methods,
 }: {
   methods: MethodMetricResponse[];
 }) {
-  const data = useMemo(() => {
-    const buckets = [
-      { range: "1-5", min: 1, max: 5, count: 0 },
-      { range: "6-10", min: 6, max: 10, count: 0 },
-      { range: "11-20", min: 11, max: 20, count: 0 },
-      { range: "21+", min: 21, max: Infinity, count: 0 },
+  const { data, gap } = useMemo(() => {
+    // 圈复杂度分桶上限较小（按 McCabe 经典 1/5/10/20）；
+    // 认知复杂度阈值通常更高（Sonar 默认 15），这里用 1-5 / 6-10 / 11-15 / 16-25 / 26+
+    const cycBuckets = [
+      { range: "1-5", min: 1, max: 5 },
+      { range: "6-10", min: 6, max: 10 },
+      { range: "11-15", min: 11, max: 15 },
+      { range: "16-25", min: 16, max: 25 },
+      { range: "26+", min: 26, max: Infinity },
     ];
-    for (const m of methods) {
-      const b = buckets.find(
-        (x) => m.cyclomaticComplexity >= x.min && m.cyclomaticComplexity <= x.max,
-      );
-      if (b) b.count += 1;
-    }
-    return buckets;
+    const merged = cycBuckets.map((b) => {
+      let cyc = 0;
+      let cog = 0;
+      for (const m of methods) {
+        if (
+          m.cyclomaticComplexity >= b.min &&
+          m.cyclomaticComplexity <= b.max
+        )
+          cyc += 1;
+        if (
+          m.cognitiveComplexity >= b.min &&
+          m.cognitiveComplexity <= b.max
+        )
+          cog += 1;
+      }
+      return { range: b.range, cyclomatic: cyc, cognitive: cog };
+    });
+    // 计算"认知 vs 圈"高分桶差额，给答辩话术用
+    const highCyc = methods.filter((m) => m.cyclomaticComplexity > 10).length;
+    const highCog = methods.filter((m) => m.cognitiveComplexity > 15).length;
+    return {
+      data: merged,
+      gap: { highCyc, highCog, diff: highCog - highCyc },
+    };
   }, [methods]);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>圈复杂度分布</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          {methods.length} 个方法的 McCabe 圈复杂度分桶
-        </p>
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle>复杂度分布</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {methods.length} 个方法 · 圈复杂度（McCabe）vs 认知复杂度（Sonar 简版）
+            </p>
+          </div>
+          <div className="flex items-center gap-3 text-[11px]">
+            <LegendChip label="圈复杂度" color={CYCLOMATIC_COLOR} />
+            <LegendChip label="认知复杂度" color={COGNITIVE_COLOR} />
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={data}>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={data} barGap={4} barCategoryGap="20%">
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
             <XAxis
               dataKey="range"
@@ -459,24 +535,100 @@ function ComplexityHistogramCard({
               allowDecimals={false}
             />
             <Tooltip
-              cursor={{ fill: "var(--color-muted)" }}
+              cursor={{ fill: "color-mix(in oklch, var(--color-muted) 60%, transparent)" }}
               contentStyle={{
                 background: "var(--color-card)",
                 border: "1px solid var(--color-border)",
                 borderRadius: 8,
                 fontSize: 12,
               }}
+              formatter={(v: number, n: string) => [`${v} 个方法`, n]}
             />
             <Bar
-              dataKey="count"
-              name="方法数"
-              fill="var(--color-primary)"
-              radius={[6, 6, 0, 0]}
+              dataKey="cyclomatic"
+              name="圈复杂度"
+              fill={CYCLOMATIC_COLOR}
+              radius={[4, 4, 0, 0]}
+            />
+            <Bar
+              dataKey="cognitive"
+              name="认知复杂度"
+              fill={COGNITIVE_COLOR}
+              radius={[4, 4, 0, 0]}
             />
           </BarChart>
         </ResponsiveContainer>
+        <div className="grid grid-cols-3 gap-2 pt-3 mt-2 border-t border-border/60 text-xs">
+          <ComplexityStat
+            label="高圈复杂度 (>10)"
+            value={gap.highCyc}
+            color={CYCLOMATIC_COLOR}
+          />
+          <ComplexityStat
+            label="高认知 (>15)"
+            value={gap.highCog}
+            color={COGNITIVE_COLOR}
+          />
+          <ComplexityStat
+            label="认知 − 圈"
+            value={gap.diff}
+            color={
+              gap.diff > 0
+                ? "oklch(0.7 0.17 75)"
+                : "oklch(0.55 0.02 260)"
+            }
+            hint={
+              gap.diff > 0
+                ? "嵌套/布尔表达式让代码比看起来更难读"
+                : "认知与圈复杂度走向一致"
+            }
+          />
+        </div>
       </CardContent>
     </Card>
+  );
+}
+
+function LegendChip({ label, color }: { label: string; color: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+      <span
+        className="h-2 w-2 rounded-sm"
+        style={{ background: color }}
+      />
+      {label}
+    </span>
+  );
+}
+
+function ComplexityStat({
+  label,
+  value,
+  color,
+  hint,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  hint?: string;
+}) {
+  return (
+    <div className="text-center space-y-0.5">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className="text-base font-semibold tabular-nums"
+        style={{ color }}
+      >
+        {value > 0 ? `+${value}` : value === 0 ? "0" : value}
+      </div>
+      {hint && (
+        <div className="text-[10px] text-muted-foreground line-clamp-1">
+          {hint}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -915,18 +1067,371 @@ function CodeSegmentLabel({
   );
 }
 
-// ============== F5 · RiskCenter (5-tab) ==============
+// ============== F6 · McCall Quality Score Card ==============
 
-type RiskTabKey = "ALL" | "COMPLEX_METHOD" | "HIGH_CBO" | "LOW_LCOM" | "HIGH_RFC";
+const MCCALL_GOLD = "oklch(0.72 0.16 90)";
+const MCCALL_AMBER_LINE = "oklch(0.85 0.05 90)";
+
+const FACTOR_DISPLAY_ORDER: McCallFactorCode[] = [
+  "MAINTAINABILITY",
+  "RELIABILITY",
+  "TESTABILITY",
+  "EFFICIENCY",
+  "REUSABILITY",
+  "FLEXIBILITY",
+];
+
+const GRADE_COLOR: Record<QualityGrade, string> = {
+  A: "oklch(0.62 0.18 165)", // 翡翠
+  B: "oklch(0.55 0.18 260)", // primary
+  C: "oklch(0.7 0.17 75)", // 琥珀
+  D: "oklch(0.6 0.22 25)", // 鲜红
+};
+
+function McCallScoreCard({
+  mccall,
+  loading,
+  error,
+}: {
+  mccall?: McCallResponse;
+  loading: boolean;
+  error: Error | null;
+}) {
+  const [showDetail, setShowDetail] = useState(false);
+
+  const radarData = useMemo(() => {
+    if (!mccall) return [];
+    const m = new Map(mccall.factors.map((f) => [f.factor, f]));
+    return FACTOR_DISPLAY_ORDER.map((code) => {
+      const f = m.get(code);
+      return {
+        factor: code,
+        name: f?.factorName ?? code,
+        score: f?.score ?? 0,
+        // 阈值参考线（70 分合格线）
+        baseline: 70,
+      };
+    });
+  }, [mccall]);
+
+  const { weakest, strongest } = useMemo(() => {
+    if (!mccall || mccall.factors.length === 0)
+      return { weakest: null, strongest: null };
+    const sorted = [...mccall.factors].sort((a, b) => a.score - b.score);
+    return { weakest: sorted[0], strongest: sorted[sorted.length - 1] };
+  }, [mccall]);
+
+  if (loading) {
+    return <Skeleton className="h-72" />;
+  }
+
+  if (error || !mccall) {
+    return (
+      <Card className="bg-muted/20 border-dashed">
+        <CardContent className="py-6 text-center text-sm text-muted-foreground">
+          <Shield className="h-7 w-7 mx-auto mb-2 opacity-40" />
+          质量综合评分暂不可用
+          {error && (
+            <div className="text-[11px] mt-1 font-mono">{error.message}</div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const gradeColor = GRADE_COLOR[mccall.grade];
+
+  return (
+    <Card className="relative overflow-hidden">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full opacity-[0.12] blur-3xl"
+        style={{
+          background: `radial-gradient(circle, ${MCCALL_GOLD} 0%, transparent 70%)`,
+        }}
+      />
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Shield
+                className="h-4 w-4"
+                style={{ color: MCCALL_GOLD }}
+              />
+              质量综合评分
+              <Badge
+                variant="outline"
+                className="text-[10px] font-normal ml-1"
+              >
+                McCall Model
+              </Badge>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              基于 CK / LK / 复杂度 / 认知 / 坏味道 · 6 维度归一化为 0-100
+            </p>
+          </div>
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            snapshot #{mccall.snapshotId}
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+          {/* 左：综合分 + 等级 + 最弱/最强 */}
+          <div className="lg:col-span-4 space-y-3">
+            <div className="flex items-baseline gap-3">
+              <span
+                className="text-5xl font-semibold tabular-nums leading-none"
+                style={{ color: MCCALL_GOLD }}
+              >
+                {mccall.overallScore.toFixed(1)}
+              </span>
+              <Badge
+                className="text-base px-2.5 py-0.5 font-bold border"
+                style={{
+                  background: gradeColor,
+                  color: "oklch(0.99 0 0)",
+                  borderColor: gradeColor,
+                }}
+              >
+                {mccall.grade}
+              </Badge>
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              综合评分（满分 100）· 70 分为合格线
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-border/60">
+              {weakest && (
+                <FactorHighlight
+                  icon={TrendingDown}
+                  label="最弱因子"
+                  factor={weakest.factorName}
+                  score={weakest.score}
+                  tone="rose"
+                />
+              )}
+              {strongest && (
+                <FactorHighlight
+                  icon={TrendingUp}
+                  label="最强因子"
+                  factor={strongest.factorName}
+                  score={strongest.score}
+                  tone="emerald"
+                />
+              )}
+            </div>
+          </div>
+
+          {/* 右：6 维雷达 */}
+          <div className="lg:col-span-8">
+            <ResponsiveContainer width="100%" height={280}>
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="var(--color-border)" />
+                <PolarAngleAxis
+                  dataKey="name"
+                  stroke="var(--color-muted-foreground)"
+                  tick={{ fontSize: 11 }}
+                />
+                <PolarRadiusAxis
+                  domain={[0, 100]}
+                  tick={{
+                    fontSize: 10,
+                    fill: "var(--color-muted-foreground)",
+                  }}
+                  stroke="var(--color-border)"
+                />
+                {/* 70 分合格线（虚线） */}
+                <Radar
+                  name="合格线 70"
+                  dataKey="baseline"
+                  stroke={MCCALL_AMBER_LINE}
+                  fill="transparent"
+                  strokeDasharray="4 4"
+                  strokeWidth={1}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+                <Radar
+                  name="质量评分"
+                  dataKey="score"
+                  stroke={MCCALL_GOLD}
+                  fill={MCCALL_GOLD}
+                  fillOpacity={0.35}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--color-card)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}
+                  formatter={(v: number, n: string) =>
+                    n === "合格线 70" ? null : [`${v.toFixed(2)} / 100`, "评分"]
+                  }
+                />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* 折叠的 6 因子明细 */}
+        <div className="border-t border-border/60 mt-3 pt-3">
+          <button
+            type="button"
+            onClick={() => setShowDetail((v) => !v)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+          >
+            {showDetail ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : (
+              <ChevronDown className="h-3 w-3" />
+            )}
+            {showDetail
+              ? "收起 6 因子明细"
+              : "查看 6 因子 criteria 明细（指标来源）"}
+          </button>
+
+          {showDetail && (
+            <Accordion
+              type="multiple"
+              defaultValue={[FACTOR_DISPLAY_ORDER[0]]}
+              className="mt-2"
+            >
+              {FACTOR_DISPLAY_ORDER.map((code) => {
+                const factor = mccall.factors.find((f) => f.factor === code);
+                if (!factor) return null;
+                return (
+                  <AccordionItem
+                    key={code}
+                    value={code}
+                    className="border-b-0"
+                  >
+                    <AccordionTrigger className="hover:no-underline px-2 py-2 rounded-md hover:bg-accent/40">
+                      <div className="flex items-center gap-3 text-sm w-full pr-2">
+                        <span className="font-medium">{factor.factorName}</span>
+                        <span
+                          className="ml-auto tabular-nums font-mono text-sm font-semibold"
+                          style={{
+                            color:
+                              factor.score >= 70
+                                ? MCCALL_GOLD
+                                : factor.score >= 50
+                                  ? "oklch(0.7 0.17 75)"
+                                  : "oklch(0.6 0.22 25)",
+                          }}
+                        >
+                          {factor.score.toFixed(1)}
+                        </span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-2">
+                      <ul className="space-y-2.5">
+                        {factor.criteria.map((cr) => (
+                          <li
+                            key={cr.criteria}
+                            className="rounded-md bg-muted/30 p-2.5"
+                          >
+                            <div className="flex items-baseline justify-between gap-2 mb-1">
+                              <span className="text-xs font-medium">
+                                {cr.criteriaName}
+                                <span className="ml-1.5 text-[10px] text-muted-foreground font-mono">
+                                  {cr.criteria}
+                                </span>
+                              </span>
+                              <span className="font-mono tabular-nums text-xs font-semibold">
+                                {cr.score.toFixed(1)}
+                              </span>
+                            </div>
+                            <ul className="space-y-0.5">
+                              {cr.metrics.map((mt) => (
+                                <li
+                                  key={mt.metricName}
+                                  className="grid grid-cols-[1fr_auto_auto_auto] gap-2 text-[11px] py-0.5"
+                                >
+                                  <span className="text-muted-foreground truncate">
+                                    {mt.metricLabel}
+                                  </span>
+                                  <span className="font-mono tabular-nums text-[10px] text-muted-foreground">
+                                    raw {mt.rawValue.toFixed(2)}
+                                  </span>
+                                  <span className="font-mono tabular-nums text-[10px]">
+                                    × {mt.weight.toFixed(2)}
+                                  </span>
+                                  <span className="font-mono tabular-nums font-medium w-12 text-right">
+                                    → {mt.normalizedScore.toFixed(1)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </li>
+                        ))}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FactorHighlight({
+  icon: Icon,
+  label,
+  factor,
+  score,
+  tone,
+}: {
+  icon: typeof TrendingDown;
+  label: string;
+  factor: string;
+  score: number;
+  tone: "rose" | "emerald";
+}) {
+  const color =
+    tone === "rose" ? "oklch(0.6 0.22 25)" : "oklch(0.62 0.18 165)";
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <Icon className="h-3.5 w-3.5 shrink-0" style={{ color }} />
+      <span className="text-muted-foreground text-[10px] uppercase tracking-wider w-16 shrink-0">
+        {label}
+      </span>
+      <span className="truncate flex-1 min-w-0">{factor}</span>
+      <span
+        className="font-mono tabular-nums font-semibold shrink-0"
+        style={{ color }}
+      >
+        {score.toFixed(1)}
+      </span>
+    </div>
+  );
+}
+
+// ============== F5 · RiskCenter (7-tab, +高认知 +坏味道) ==============
+
+type RiskTabKey =
+  | "ALL"
+  | "COMPLEX_METHOD"
+  | "HIGH_COGNITIVE"
+  | "HIGH_CBO"
+  | "LOW_LCOM"
+  | "HIGH_RFC"
+  | "CODE_SMELL";
 
 function RiskCenter({
   risks,
   classes,
   methods,
+  codeSmells,
 }: {
   risks: RiskItemResponse[];
   classes: ClassMetricResponse[];
   methods: MethodMetricResponse[];
+  codeSmells?: CodeSmellsResponse;
 }) {
   const navigate = useNavigate();
 
@@ -946,6 +1451,14 @@ function RiskCenter({
     () =>
       [...methods]
         .sort((a, b) => b.cyclomaticComplexity - a.cyclomaticComplexity)
+        .slice(0, 10),
+    [methods],
+  );
+
+  const topCognitiveMethods = useMemo(
+    () =>
+      [...methods]
+        .sort((a, b) => b.cognitiveComplexity - a.cognitiveComplexity)
         .slice(0, 10),
     [methods],
   );
@@ -985,13 +1498,14 @@ function RiskCenter({
     label: string;
     icon: typeof Gauge;
     count: number;
-    accent: string;
   }[] = [
-    { key: "ALL", label: "综合", icon: AlertTriangle, count: allRisks.length, accent: "oklch(0.7 0.17 75)" },
-    { key: "COMPLEX_METHOD", label: "复杂方法", icon: Gauge, count: topComplexMethods.length, accent: "oklch(0.6 0.22 25)" },
-    { key: "HIGH_CBO", label: "高耦合", icon: Link2, count: topCoupledClasses.length, accent: "oklch(0.55 0.22 295)" },
-    { key: "LOW_LCOM", label: "低内聚", icon: Shrink, count: topLowCohesionClasses.length, accent: "oklch(0.7 0.17 75)" },
-    { key: "HIGH_RFC", label: "高 RFC", icon: Network, count: topRfcClasses.length, accent: "oklch(0.6 0.16 200)" },
+    { key: "ALL", label: "综合", icon: AlertTriangle, count: allRisks.length },
+    { key: "COMPLEX_METHOD", label: "圈复杂", icon: Gauge, count: topComplexMethods.length },
+    { key: "HIGH_COGNITIVE", label: "认知", icon: Brain, count: topCognitiveMethods.length },
+    { key: "HIGH_CBO", label: "高耦合", icon: Link2, count: topCoupledClasses.length },
+    { key: "LOW_LCOM", label: "低内聚", icon: Shrink, count: topLowCohesionClasses.length },
+    { key: "HIGH_RFC", label: "高 RFC", icon: Network, count: topRfcClasses.length },
+    { key: "CODE_SMELL", label: "坏味道", icon: Bug, count: codeSmells?.totalSmellCount ?? 0 },
   ];
 
   return (
@@ -1003,20 +1517,20 @@ function RiskCenter({
             风险中心
           </CardTitle>
           <span className="text-[11px] text-muted-foreground tabular-nums">
-            共 {risks.length} 项识别风险 · 多视角排行
+            共 {risks.length} 项风险 · {codeSmells?.totalSmellCount ?? 0} 项坏味道 · 多视角排行
           </span>
         </div>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="ALL">
-          <TabsList className="grid grid-cols-5 mb-3 h-auto p-1">
+          <TabsList className="grid grid-cols-7 mb-3 h-auto p-1">
             {tabs.map((t) => {
               const Icon = t.icon;
               return (
                 <TabsTrigger
                   key={t.key}
                   value={t.key}
-                  className="flex flex-col gap-0.5 py-1.5 text-[11px] data-[state=active]:font-medium"
+                  className="flex flex-col gap-0.5 py-1.5 px-1 text-[11px] data-[state=active]:font-medium"
                 >
                   <Icon className="h-3.5 w-3.5" />
                   <span className="leading-tight">{t.label}</span>
@@ -1080,7 +1594,7 @@ function RiskCenter({
                         </>
                       }
                       badge={<Badge variant={RISK_VARIANT[m.riskLevel]}>{m.riskLevel}</Badge>}
-                      metric={`Cx ${m.cyclomaticComplexity}`}
+                      metric={`Cx ${m.cyclomaticComplexity} · 认知 ${m.cognitiveComplexity}`}
                       sub={`LoC ${m.loc} · 行 ${m.startLine}–${m.endLine}`}
                       barValue={m.cyclomaticComplexity}
                       barMax={max}
@@ -1088,6 +1602,44 @@ function RiskCenter({
                       onClick={() => goClass(m.classQualifiedName)}
                     />
                   ));
+                })()}
+              </ol>
+            )}
+          </TabsContent>
+
+          <TabsContent value="HIGH_COGNITIVE">
+            {topCognitiveMethods.length === 0 ? (
+              <RiskEmpty />
+            ) : (
+              <ol className="space-y-1">
+                {(() => {
+                  const max = Math.max(...topCognitiveMethods.map((m) => m.cognitiveComplexity), 1);
+                  return topCognitiveMethods.map((m, i) => {
+                    const diff = m.cognitiveComplexity - m.cyclomaticComplexity;
+                    return (
+                      <RiskRow
+                        key={i}
+                        rank={i + 1}
+                        name={
+                          <>
+                            <span className="text-muted-foreground">{m.classQualifiedName}.</span>
+                            <span className="font-medium">{m.methodName}</span>
+                          </>
+                        }
+                        badge={<Badge variant={RISK_VARIANT[m.riskLevel]}>{m.riskLevel}</Badge>}
+                        metric={`认知 ${m.cognitiveComplexity}${diff > 0 ? ` · +${diff}` : ""}`}
+                        sub={
+                          diff >= 5
+                            ? `比圈复杂度高 ${diff}，多半因为嵌套过深 / 复杂布尔表达式`
+                            : `圈 ${m.cyclomaticComplexity} · LoC ${m.loc}`
+                        }
+                        barValue={m.cognitiveComplexity}
+                        barMax={max}
+                        barColor={COGNITIVE_COLOR}
+                        onClick={() => goClass(m.classQualifiedName)}
+                      />
+                    );
+                  });
                 })()}
               </ol>
             )}
@@ -1170,9 +1722,240 @@ function RiskCenter({
               </ol>
             )}
           </TabsContent>
+
+          <TabsContent value="CODE_SMELL">
+            <CodeSmellTab
+              smells={codeSmells}
+              onClickClass={goClass}
+            />
+          </TabsContent>
         </Tabs>
       </CardContent>
     </Card>
+  );
+}
+
+// ============== F8 · CodeSmellTab ==============
+
+const SMELL_SEVERITY_COLOR: Record<"MEDIUM" | "HIGH", string> = {
+  MEDIUM: "oklch(0.7 0.17 75)",
+  HIGH: "oklch(0.6 0.22 25)",
+};
+
+const SMELL_TYPE_LABEL: Record<string, string> = {
+  LONG_METHOD: "方法过长",
+  COMPLEX_METHOD: "圈复杂度过高",
+  HIGH_COGNITIVE_COMPLEXITY: "认知复杂度过高",
+  LONG_PARAMETER_LIST: "参数过多",
+  LARGE_CLASS: "类过大",
+  GOD_CLASS: "上帝类",
+  HIGH_COUPLING: "高耦合",
+  LOW_COHESION: "低内聚",
+  DEEP_INHERITANCE: "继承过深",
+  LARGE_RESPONSE_SET: "响应集合过大",
+};
+
+function CodeSmellTab({
+  smells,
+  onClickClass,
+}: {
+  smells?: CodeSmellsResponse;
+  onClickClass: (fqn: string) => void;
+}) {
+  const [filterType, setFilterType] = useState<string | null>(null);
+
+  const items = useMemo(() => {
+    if (!smells) return [];
+    const filtered = filterType
+      ? smells.items.filter((s) => s.smellType === filterType)
+      : smells.items;
+    return [...filtered].sort((a, b) => {
+      const sev = (a.severity === "HIGH" ? 0 : 1) - (b.severity === "HIGH" ? 0 : 1);
+      if (sev !== 0) return sev;
+      return b.debtMinutes - a.debtMinutes;
+    });
+  }, [smells, filterType]);
+
+  if (!smells) {
+    return (
+      <div className="py-12 text-center text-sm text-muted-foreground">
+        <Inbox className="h-7 w-7 mx-auto mb-2 opacity-40" />
+        坏味道数据不可用
+      </div>
+    );
+  }
+  if (smells.totalSmellCount === 0) {
+    return (
+      <div className="py-12 text-center text-sm text-muted-foreground">
+        <Shield className="h-7 w-7 mx-auto mb-2 text-emerald-500/70" />
+        未发现坏味道 🎉
+      </div>
+    );
+  }
+
+  const highCount = smells.items.filter((s) => s.severity === "HIGH").length;
+  const mediumCount = smells.items.filter((s) => s.severity === "MEDIUM").length;
+
+  return (
+    <div className="space-y-3">
+      {/* 顶部 KPI */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        <SmellKpi
+          icon={Bug}
+          label="总坏味道"
+          value={smells.totalSmellCount.toString()}
+          accent="oklch(0.6 0.22 25)"
+        />
+        <SmellKpi
+          icon={Clock}
+          label="技术债"
+          value={`${smells.totalDebtHours.toFixed(1)} h`}
+          accent="oklch(0.7 0.17 75)"
+        />
+        <SmellKpi
+          icon={Flame}
+          label="HIGH"
+          value={highCount.toString()}
+          accent="oklch(0.6 0.22 25)"
+        />
+        <SmellKpi
+          icon={AlertTriangle}
+          label="MEDIUM"
+          value={mediumCount.toString()}
+          accent="oklch(0.7 0.17 75)"
+        />
+      </div>
+
+      {/* 类型 chip 过滤 */}
+      <div className="flex flex-wrap gap-1.5 pb-1.5 border-b border-border/60">
+        <button
+          type="button"
+          onClick={() => setFilterType(null)}
+          className={cn(
+            "text-[10px] px-2 py-0.5 rounded-md border transition-colors",
+            filterType == null
+              ? "bg-primary text-primary-foreground border-primary"
+              : "border-border hover:bg-accent",
+          )}
+        >
+          全部 {smells.totalSmellCount}
+        </button>
+        {Object.entries(smells.smellsByType)
+          .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+          .map(([type, count]) => {
+            const isActive = filterType === type;
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setFilterType(isActive ? null : type)}
+                className={cn(
+                  "text-[10px] px-2 py-0.5 rounded-md border transition-colors font-mono",
+                  isActive
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border hover:bg-accent",
+                )}
+              >
+                {SMELL_TYPE_LABEL[type] ?? type}
+                <span className="ml-1 opacity-70 tabular-nums">{count}</span>
+              </button>
+            );
+          })}
+      </div>
+
+      {/* 列表 */}
+      <ol className="space-y-1 max-h-[420px] overflow-y-auto pr-1">
+        {items.map((s, i) => (
+          <SmellRow
+            key={i}
+            smell={s}
+            onClick={
+              s.targetType === "CLASS"
+                ? () => onClickClass(s.targetName)
+                : () => {
+                    // METHOD targetName: "com.demo.OrderService#methodName"
+                    const hash = s.targetName.indexOf("#");
+                    const cls = hash > 0 ? s.targetName.slice(0, hash) : s.targetName;
+                    onClickClass(cls);
+                  }
+            }
+          />
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function SmellKpi({
+  icon: Icon,
+  label,
+  value,
+  accent,
+}: {
+  icon: typeof Bug;
+  label: string;
+  value: string;
+  accent: string;
+}) {
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <Icon className="h-3 w-3" style={{ color: accent }} />
+        {label}
+      </div>
+      <div
+        className="text-base font-semibold tabular-nums mt-0.5"
+        style={{ color: accent }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function SmellRow({
+  smell: s,
+  onClick,
+}: {
+  smell: CodeSmellItem;
+  onClick: () => void;
+}) {
+  const sevColor = SMELL_SEVERITY_COLOR[s.severity];
+  return (
+    <li
+      onClick={onClick}
+      className="group rounded-md px-2 py-2 text-sm cursor-pointer hover:bg-accent/60 transition-colors border-b border-border/40 last:border-0"
+    >
+      <div className="flex items-start gap-3">
+        <span
+          className="h-1.5 w-1.5 rounded-full mt-2 shrink-0"
+          style={{ background: sevColor }}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-xs">{s.smellName}</span>
+            <Badge
+              variant="outline"
+              className="text-[9px] font-mono"
+              style={{ color: sevColor, borderColor: sevColor }}
+            >
+              {s.severity}
+            </Badge>
+            <span className="font-mono text-[11px] text-muted-foreground truncate min-w-0">
+              {s.targetName}
+            </span>
+            <span className="text-[10px] text-muted-foreground ml-auto tabular-nums shrink-0">
+              {s.triggerMetric} {s.triggerValue} / {s.threshold} ·{" "}
+              {s.debtMinutes}m
+            </span>
+            <ArrowUpRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
+            {s.suggestion}
+          </div>
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -1479,6 +2262,20 @@ function ClassTable({ classes }: { classes: ClassMetricResponse[] }) {
                   AvgCx
                 </TableHead>
                 <TableHead className="text-right">MaxCx</TableHead>
+                <TableHead
+                  className="text-right border-l border-border/60"
+                  style={{ color: COGNITIVE_COLOR }}
+                  title="平均认知复杂度（Sonar 简版）"
+                >
+                  AvgCogn
+                </TableHead>
+                <TableHead
+                  className="text-right"
+                  style={{ color: COGNITIVE_COLOR }}
+                  title="最大认知复杂度"
+                >
+                  MaxCogn
+                </TableHead>
                 <TableHead>风险</TableHead>
               </TableRow>
             </TableHeader>
@@ -1513,6 +2310,15 @@ function ClassTable({ classes }: { classes: ClassMetricResponse[] }) {
                   <NumCell value={c.specializationIndex.toFixed(2)} accent />
                   <NumCell value={c.averageComplexity.toFixed(2)} borderLeft />
                   <NumCell value={c.maxComplexity} />
+                  <NumCell
+                    value={c.averageCognitiveComplexity.toFixed(2)}
+                    color={COGNITIVE_COLOR}
+                    borderLeft
+                  />
+                  <NumCell
+                    value={c.maxCognitiveComplexity}
+                    color={COGNITIVE_COLOR}
+                  />
                   <TableCell>
                     <Badge variant={RISK_VARIANT[c.riskLevel]}>
                       {c.riskLevel}
@@ -1574,7 +2380,20 @@ function MethodTable({ methods }: { methods: MethodMetricResponse[] }) {
                 <TableHead>返回类型</TableHead>
                 <TableHead className="text-right">参数</TableHead>
                 <TableHead className="text-right">LoC</TableHead>
-                <TableHead className="text-right">圈复杂度</TableHead>
+                <TableHead
+                  className="text-right"
+                  style={{ color: CYCLOMATIC_COLOR }}
+                  title="McCabe 圈复杂度"
+                >
+                  圈
+                </TableHead>
+                <TableHead
+                  className="text-right"
+                  style={{ color: COGNITIVE_COLOR }}
+                  title="认知复杂度（Sonar 简版）"
+                >
+                  认知
+                </TableHead>
                 <TableHead className="text-right">起止行</TableHead>
                 <TableHead>风险</TableHead>
               </TableRow>
@@ -1593,7 +2412,8 @@ function MethodTable({ methods }: { methods: MethodMetricResponse[] }) {
                   <TableCell className="font-mono text-xs">{m.returnType}</TableCell>
                   <NumCell value={m.parameterCount} />
                   <NumCell value={m.loc} />
-                  <NumCell value={m.cyclomaticComplexity} />
+                  <NumCell value={m.cyclomaticComplexity} color={CYCLOMATIC_COLOR} />
+                  <NumCell value={m.cognitiveComplexity} color={COGNITIVE_COLOR} />
                   <TableCell className="text-right text-xs text-muted-foreground tabular-nums">
                     {m.startLine}–{m.endLine}
                   </TableCell>
@@ -1660,18 +2480,22 @@ function NumCell({
   value,
   accent,
   borderLeft,
+  color,
 }: {
   value: number | string;
   accent?: boolean;
   borderLeft?: boolean;
+  /** 自定义文本色；优先级 > accent */
+  color?: string;
 }) {
+  const resolved = color ?? (accent ? LK_COLORS.avg : undefined);
   return (
     <TableCell
       className={cn(
         "text-right tabular-nums font-mono text-xs",
         borderLeft && "border-l border-border/60",
       )}
-      style={accent ? { color: LK_COLORS.avg } : undefined}
+      style={resolved ? { color: resolved } : undefined}
     >
       {value}
     </TableCell>
