@@ -134,6 +134,17 @@ function MetricsInner({ projectId }: { projectId: number }) {
     retry: 0,
   });
 
+  const miQuery = useQuery({
+    queryKey: ["maintainability", projectId],
+    queryFn: () => metricsApi.getMaintainability(projectId!),
+    enabled: !!projectId,
+  });
+
+  const miData = miQuery.data;
+  console.log("Status:", miQuery.status);
+  console.log("Error:", miQuery.error);
+  console.log("MI Data Check:", miQuery.data);
+
   const overview = overviewQuery.data;
   const isAnalyzed = (overview?.analysisCount ?? 0) > 0;
   const classes = classesQuery.data ?? [];
@@ -206,13 +217,21 @@ function MetricsInner({ projectId }: { projectId: number }) {
             avgComplexity > 10 ? "danger" : avgComplexity > 5 ? "warning" : "default"
           }
         />
+        <KpiCard
+            label="可维护性评分"
+            value={miData?.averageScore ? miData.averageScore.toFixed(1) : "--"}
+            unit={miData?.level}
+            tone={
+              miData?.color === "danger" ? "danger" :
+                  miData?.color === "warning" ? "warning" : "default"
+            }
+        />
         <QualityGradeCard
           grade={overview?.qualityGrade}
           highRiskCount={overview?.highRiskCount ?? 0}
         />
       </section>
 
-      {/* --- 2. 插入：代码构成分布条 (建议独立成行) --- */}
       <Card className="bg-muted/10 border-dashed">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
@@ -224,7 +243,6 @@ function MetricsInner({ projectId }: { projectId: number }) {
             </div>
           </div>
 
-          {/* 堆叠进度条逻辑 */}
           <div className="flex h-2.5 w-full rounded-full overflow-hidden bg-muted/50 ring-1 ring-border">
             <div
                 className="bg-blue-500 h-full transition-all"
@@ -238,6 +256,12 @@ function MetricsInner({ projectId }: { projectId: number }) {
                 className="bg-slate-400 h-full transition-all"
                 style={{ width: `${(summary.blankLines / (totalLoc + (summary.commentLines) + (summary.blankLines)) * 100) || 0}%` }}
             />
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Badge variant="success">Good: {miData?.goodCount ?? 0}</Badge>
+            <Badge variant="warning">Moderate: {miData?.moderateCount ?? 0}</Badge>
+            <Badge variant="warning">Low: {miData?.lowCount ?? 0}</Badge>
+            <Badge variant="danger">Critical: {miData?.criticalCount ?? 0}</Badge>
           </div>
         </CardContent>
       </Card>
