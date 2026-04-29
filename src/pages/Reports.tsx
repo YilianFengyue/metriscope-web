@@ -42,6 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { IfpugAssessmentPanel } from "./fp/IfpugAssessment";
 import {
   Select,
   SelectContent,
@@ -107,7 +108,8 @@ function ReportsInner({ projectId }: { projectId: number }) {
           <TabsTrigger value="export" disabled={!latestSnapshot}>
             导出
           </TabsTrigger>
-          <TabsTrigger value="estimate">项目估算</TabsTrigger>
+          <TabsTrigger value="estimate">快速估算</TabsTrigger>
+          <TabsTrigger value="ifpug">IFPUG 评估</TabsTrigger>
         </TabsList>
 
         <TabsContent value="report">
@@ -124,6 +126,10 @@ function ReportsInner({ projectId }: { projectId: number }) {
 
         <TabsContent value="estimate">
           <EstimateSection projectId={projectId} />
+        </TabsContent>
+
+        <TabsContent value="ifpug">
+          <IfpugAssessmentPanel projectId={projectId} />
         </TabsContent>
       </Tabs>
     </div>

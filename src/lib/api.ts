@@ -66,6 +66,8 @@ const put = <T,>(path: string, body?: unknown, opts?: RequestOptions) =>
     { method: "PUT", body: body == null ? undefined : JSON.stringify(body) },
     opts,
   );
+const del = <T,>(path: string, opts?: RequestOptions) =>
+  request<T>(path, { method: "DELETE" }, opts);
 
 // ============== Types ==============
 
@@ -362,6 +364,166 @@ export interface EstimateResponse {
   assumptions: string;
 }
 
+// ============== Diagrams ==============
+
+export interface DiagramConsistencyResponse {
+  diagramPath: string;
+  diagramType: string;
+  diagramClassCount: number;
+  codeClassCount: number;
+  matchedClassCount: number;
+  missingInCodeClassCount: number;
+  missingInDiagramClassCount: number;
+  missingRelationsInCodeCount: number;
+  missingRelationsInDiagramCount: number;
+  consistencyScore: number;
+  missingInCodeClasses: string[];
+  missingInDiagramClasses: string[];
+  missingRelationsInCode: string[];
+  missingRelationsInDiagram: string[];
+  suggestions: string[];
+}
+
+export interface DiagramInsightItem {
+  importId: number;
+  diagramPath: string;
+  diagramType: string;
+  status: string;
+  nodeCount: number;
+  relationCount: number;
+  isolatedNodeCount: number;
+  inheritanceCount: number;
+  dependencyCount: number;
+  aggregationCount: number;
+  flowCount: number;
+  actorCount: number;
+  useCaseCount: number;
+  actionCount: number;
+  decisionCount: number;
+  startCount: number;
+  stopCount: number;
+  warnings: string[];
+  errorMessage: string | null;
+}
+
+export interface DiagramInsightsResponse {
+  projectId: number;
+  totalDiagrams: number;
+  parsedDiagrams: number;
+  failedDiagrams: number;
+  items: DiagramInsightItem[];
+}
+
+export interface DiagramSummaryItem {
+  diagramType: string;
+  totalCount: number;
+  parsedCount: number;
+  failedCount: number;
+  entityCount: number;
+  relationCount: number;
+}
+
+export interface DiagramSummaryResponse {
+  projectId: number;
+  totalDiagrams: number;
+  parsedDiagrams: number;
+  failedDiagrams: number;
+  items: DiagramSummaryItem[];
+  generatedAt: string;
+}
+
+// ============== MCP ==============
+
+export interface McpToolDescriptor {
+  toolName: string;
+  description: string;
+  method: "GET" | "POST";
+  path: string;
+}
+
+// ============== F14 · IFPUG Function Point Assessment ==============
+
+export type FpFunctionType = "EI" | "EO" | "EQ" | "ILF" | "EIF";
+export type FpComplexity = "LOW" | "AVERAGE" | "HIGH";
+export type GscFactorCode =
+  | "DATA_COMMUNICATIONS"
+  | "DISTRIBUTED_DATA_PROCESSING"
+  | "PERFORMANCE"
+  | "HEAVILY_USED_CONFIGURATION"
+  | "TRANSACTION_RATE"
+  | "ONLINE_DATA_ENTRY"
+  | "END_USER_EFFICIENCY"
+  | "ONLINE_UPDATE"
+  | "COMPLEX_PROCESSING"
+  | "REUSABILITY"
+  | "INSTALLATION_EASE"
+  | "OPERATIONAL_EASE"
+  | "MULTIPLE_SITES"
+  | "FACILITATE_CHANGE";
+
+export interface FpFunctionItemRequest {
+  name: string;
+  type: FpFunctionType;
+  complexity?: FpComplexity;
+  detCount?: number;
+  ftrCount?: number;
+  retCount?: number;
+  description?: string;
+}
+
+export interface FpGscRatingRequest {
+  factorCode: GscFactorCode;
+  rating: number;
+}
+
+export interface CreateFpAssessmentRequest {
+  name: string;
+  description?: string;
+  productivityFpPerPersonMonth?: number;
+  personMonthCost?: number;
+  items: FpFunctionItemRequest[];
+  gscRatings?: FpGscRatingRequest[];
+}
+
+export interface FpFunctionItemResponse {
+  id: number;
+  name: string;
+  type: FpFunctionType;
+  typeLabel: string;
+  complexity: FpComplexity;
+  detCount: number;
+  ftrCount: number;
+  retCount: number;
+  weight: number;
+  description: string;
+}
+
+export interface FpGscRatingResponse {
+  id: number;
+  factorCode: GscFactorCode;
+  factorLabel: string;
+  rating: number;
+}
+
+export interface FpAssessmentResponse {
+  id: number;
+  projectId: number;
+  name: string;
+  description: string | null;
+  ufp: number;
+  valueAdjustmentSum: number;
+  vaf: number;
+  afp: number;
+  productivityFpPerPersonMonth: number;
+  estimatedEffortPersonMonths: number;
+  estimatedScheduleMonths: number;
+  estimatedCost: number;
+  itemsByType: Partial<Record<FpFunctionType, number>>;
+  items: FpFunctionItemResponse[];
+  gscRatings: FpGscRatingResponse[];
+  createdAt: string;
+}
+
 // ============== API Modules ==============
 
 export const systemApi = {
@@ -541,4 +703,62 @@ export const estimateApi = {
     body: EstimateRequest,
     opts?: RequestOptions,
   ) => post<EstimateResponse>(`${PREFIX}/projects/${projectId}/estimate`, body, opts),
+};
+
+export const diagramsApi = {
+  consistency: (projectId: number, opts?: RequestOptions) =>
+    get<DiagramConsistencyResponse>(
+      `${PREFIX}/projects/${projectId}/diagram-consistency`,
+      opts,
+    ),
+  insights: (projectId: number, opts?: RequestOptions) =>
+    get<DiagramInsightsResponse>(
+      `${PREFIX}/projects/${projectId}/diagram-insights`,
+      opts,
+    ),
+  summary: (projectId: number, opts?: RequestOptions) =>
+    get<DiagramSummaryResponse>(
+      `${PREFIX}/projects/${projectId}/diagram-summary`,
+      opts,
+    ),
+};
+
+export const fpAssessmentsApi = {
+  list: (projectId: number, opts?: RequestOptions) =>
+    get<FpAssessmentResponse[]>(
+      `${PREFIX}/projects/${projectId}/fp-assessments`,
+      opts,
+    ),
+  create: (
+    projectId: number,
+    body: CreateFpAssessmentRequest,
+    opts?: RequestOptions,
+  ) =>
+    post<FpAssessmentResponse>(
+      `${PREFIX}/projects/${projectId}/fp-assessments`,
+      body,
+      opts,
+    ),
+  detail: (assessmentId: number, opts?: RequestOptions) =>
+    get<FpAssessmentResponse>(`${PREFIX}/fp-assessments/${assessmentId}`, opts),
+  delete: (assessmentId: number, opts?: RequestOptions) =>
+    del<null>(`${PREFIX}/fp-assessments/${assessmentId}`, opts),
+};
+
+export const mcpApi = {
+  tools: (opts?: RequestOptions) =>
+    get<McpToolDescriptor[]>(`${PREFIX}/mcp/tools`, opts),
+  /**
+   * 通用 MCP 工具调用。GET 工具忽略 body；POST 工具用 body。
+   * 后端返回的 path 已经是带 /api/v1 前缀的完整路径，所以这里直接用 path。
+   */
+  invoke: <T = unknown>(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown,
+    opts?: RequestOptions,
+  ) => {
+    if (method === "GET") return get<T>(path, opts);
+    return post<T>(path, body, opts);
+  },
 };

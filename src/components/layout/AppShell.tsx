@@ -3,9 +3,11 @@ import { Link, NavLink, Outlet } from "react-router-dom";
 import {
   Activity,
   BarChart3,
+  Bot,
   FileText,
   FolderKanban,
   GitBranch,
+  GitCompare,
   History,
   Settings,
 } from "lucide-react";
@@ -25,8 +27,10 @@ const navItems = [
   { to: "/projects", label: "项目", icon: FolderKanban },
   { to: "/analysis", label: "分析", icon: Activity },
   { to: "/metrics", label: "指标", icon: BarChart3 },
+  { to: "/diagrams", label: "图分析", icon: GitCompare },
   { to: "/history", label: "历史", icon: History },
   { to: "/reports", label: "报告", icon: FileText },
+  { to: "/mcp", label: "MCP", icon: Bot },
   { to: "/settings", label: "设置", icon: Settings },
 ] as const;
 

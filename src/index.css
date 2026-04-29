@@ -6,6 +6,10 @@
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-pulse-ring: pulse-ring 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
   --color-background: oklch(1 0 0);
   --color-foreground: oklch(0.18 0.02 260);
 
@@ -57,4 +61,17 @@ body {
 
 code, pre, .font-mono {
   font-family: var(--font-mono);
+}
+
+@keyframes accordion-down {
+  from { height: 0; }
+  to { height: var(--radix-accordion-content-height); }
+}
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); }
+  to { height: 0; }
+}
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  50% { box-shadow: 0 0 0 6px transparent; opacity: 0.6; }
 }

@@ -20,9 +20,16 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowUpRight,
+  FileCode2,
+  Files,
   Filter,
+  Gauge,
   Inbox,
+  Link2,
+  Maximize2,
+  Network,
   Search,
+  Shrink,
   TrendingUp,
 } from "lucide-react";
 import {
@@ -32,9 +39,12 @@ import {
   type MethodMetricResponse,
   type RiskItemResponse,
   type RiskLevel,
+  type SnapshotSummary,
 } from "@/lib/api";
 import { useApp } from "@/stores/app";
 import { cn } from "@/lib/utils";
+import { DependencyGraph } from "@/components/charts/DependencyGraph";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -142,12 +152,16 @@ function MetricsInner({ projectId }: { projectId: number }) {
   const deps = depsQuery.data ?? [];
   const latestSnapshot = overview?.latestSnapshot;
 
-  const summary = latestSnapshot?.summary || {
+  const summary: SnapshotSummary = latestSnapshot?.summary || {
+    totalLoc: 0,
+    classCount: 0,
+    methodCount: 0,
+    averageComplexity: 0,
+    highRiskCount: 0,
     javaFileCount: 0,
     blankLines: 0,
     commentLines: 0,
     commentRate: 0,
-    totalLoc: 0
   };
 
   if (overviewQuery.isLoading) {
@@ -212,35 +226,7 @@ function MetricsInner({ projectId }: { projectId: number }) {
         />
       </section>
 
-      {/* --- 2. 插入：代码构成分布条 (建议独立成行) --- */}
-      <Card className="bg-muted/10 border-dashed">
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
-            <span>代码构成分布 (LoC Distribution)</span>
-            <div className="flex gap-4">
-              <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-blue-500"/> 代码</span>
-              <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"/> 注释</span>
-              <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-slate-400"/> 空白</span>
-            </div>
-          </div>
-
-          {/* 堆叠进度条逻辑 */}
-          <div className="flex h-2.5 w-full rounded-full overflow-hidden bg-muted/50 ring-1 ring-border">
-            <div
-                className="bg-blue-500 h-full transition-all"
-                style={{ width: `${(totalLoc / (totalLoc + (summary.commentLines) + (summary.blankLines)) * 100) || 0}%` }}
-            />
-            <div
-                className="bg-emerald-500 h-full transition-all"
-                style={{ width: `${(summary.commentLines / (totalLoc + (summary.commentLines) + (summary.blankLines)) * 100) || 0}%` }}
-            />
-            <div
-                className="bg-slate-400 h-full transition-all"
-                style={{ width: `${(summary.blankLines / (totalLoc + (summary.commentLines) + (summary.blankLines)) * 100) || 0}%` }}
-            />
-          </div>
-        </CardContent>
-      </Card>
+      <CodeAnatomyCard summary={summary} totalLoc={totalLoc} />
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <CkRadarCard classes={classes} />
@@ -252,9 +238,11 @@ function MetricsInner({ projectId }: { projectId: number }) {
         <ClassAnatomyCard classes={classes} />
       </section>
 
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <RisksCard risks={risks} />
-        <DependencySummaryCard deps={deps} />
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <RiskCenter risks={risks} classes={classes} methods={methods} />
+        </div>
+        <DependencySummaryCard deps={deps} classes={classes} />
       </section>
 
       <Tabs defaultValue="classes">
@@ -740,73 +728,535 @@ function ClassAnatomyCard({ classes }: { classes: ClassMetricResponse[] }) {
   );
 }
 
-function RisksCard({ risks }: { risks: RiskItemResponse[] }) {
-  const top = useMemo(() => {
-    return [...risks]
-      .sort(
-        (a, b) =>
-          RISK_RANK[b.riskLevel] - RISK_RANK[a.riskLevel] ||
-          b.metricValue - a.metricValue,
-      )
-      .slice(0, 10);
-  }, [risks]);
+// ============== F1 · CodeAnatomyCard ==============
+
+function CodeAnatomyCard({
+  summary,
+  totalLoc,
+}: {
+  summary: SnapshotSummary;
+  totalLoc: number;
+}) {
+  // 注：snapshot.totalLoc 后端口径可能含/不含注释空白，按 LK 设计这里把代码规模(totalLoc)与
+  // 注释/空白合算总行数，避免比例失真
+  const code = totalLoc;
+  const comment = summary.commentLines;
+  const blank = summary.blankLines;
+  const sum = code + comment + blank || 1;
+  const codePct = (code / sum) * 100;
+  const commentPct = (comment / sum) * 100;
+  const blankPct = (blank / sum) * 100;
+
+  const commentRate = (summary.commentRate ?? 0) * 100;
+  const rateColor =
+    commentRate >= 15
+      ? "oklch(0.62 0.18 165)" // emerald
+      : commentRate >= 5
+        ? "oklch(0.7 0.17 75)" // amber
+        : "oklch(0.6 0.22 25)"; // rose
+  const rateRingDash = (commentRate / 100) * 2 * Math.PI * 28; // r=28
+  const rateRingTotal = 2 * Math.PI * 28;
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="relative overflow-hidden">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-20 -left-20 h-56 w-56 rounded-full opacity-[0.08] blur-3xl"
+        style={{ background: "radial-gradient(circle, var(--color-primary) 0%, transparent 70%)" }}
+      />
+      <CardHeader className="pb-4">
         <CardTitle className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-500" />
-          风险榜 Top 10
+          <FileCode2 className="h-4 w-4 text-primary" />
+          代码构成
+          <Badge variant="outline" className="text-[10px] font-normal ml-1">
+            LoC Anatomy
+          </Badge>
         </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          共 {risks.length} 项风险，按等级与指标值排序
+        <p className="text-xs text-muted-foreground mt-1">
+          物理行数 = 代码 + 注释 + 空白；注释率反映文档密度
         </p>
       </CardHeader>
       <CardContent>
-        {top.length === 0 ? (
-          <div className="py-10 text-center text-sm text-muted-foreground">
-            未发现风险项 🎉
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+          {/* 左：文件数 */}
+          <div className="lg:col-span-2 flex lg:flex-col items-center lg:items-start gap-3 lg:gap-1">
+            <div className="flex items-center gap-2">
+              <Files className="h-4 w-4 text-muted-foreground" />
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+                Java 文件
+              </span>
+            </div>
+            <div className="text-3xl font-semibold tabular-nums">
+              {summary.javaFileCount.toLocaleString()}
+            </div>
+            <div className="text-[10px] text-muted-foreground hidden lg:block">
+              .java 源文件
+            </div>
           </div>
-        ) : (
-          <ol className="space-y-2">
-            {top.map((r, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-3 text-sm py-1.5 border-b border-border last:border-0"
-              >
-                <span className="font-mono text-xs text-muted-foreground w-5 tabular-nums">
-                  {(i + 1).toString().padStart(2, "0")}
+
+          {/* 中：堆叠条 + 数字 */}
+          <div className="lg:col-span-7 space-y-3">
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <CodeSegmentLabel
+                label="代码"
+                count={code}
+                pct={codePct}
+                colorClass="bg-[oklch(0.55_0.18_260)]"
+              />
+              <CodeSegmentLabel
+                label="注释"
+                count={comment}
+                pct={commentPct}
+                colorClass="bg-[oklch(0.62_0.18_165)]"
+              />
+              <CodeSegmentLabel
+                label="空白"
+                count={blank}
+                pct={blankPct}
+                colorClass="bg-[oklch(0.78_0.01_260)]"
+              />
+            </div>
+            <div className="flex h-3 w-full rounded-full overflow-hidden bg-muted ring-1 ring-border/60">
+              <div
+                className="h-full transition-all"
+                style={{
+                  width: `${codePct}%`,
+                  background: "oklch(0.55 0.18 260)",
+                }}
+              />
+              <div
+                className="h-full transition-all"
+                style={{
+                  width: `${commentPct}%`,
+                  background: "oklch(0.62 0.18 165)",
+                }}
+              />
+              <div
+                className="h-full transition-all"
+                style={{
+                  width: `${blankPct}%`,
+                  background: "oklch(0.78 0.01 260)",
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
+              <span>合计 {sum.toLocaleString()} 行</span>
+              <span>{summary.javaFileCount > 0
+                ? `平均每文件 ${Math.round(sum / summary.javaFileCount)} 行`
+                : "—"}</span>
+            </div>
+          </div>
+
+          {/* 右：注释率环 */}
+          <div className="lg:col-span-3 flex items-center justify-center">
+            <div className="relative w-24 h-24">
+              <svg viewBox="0 0 64 64" className="w-full h-full -rotate-90">
+                <circle
+                  cx="32"
+                  cy="32"
+                  r="28"
+                  fill="none"
+                  stroke="var(--color-border)"
+                  strokeWidth="6"
+                />
+                <circle
+                  cx="32"
+                  cy="32"
+                  r="28"
+                  fill="none"
+                  stroke={rateColor}
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  strokeDasharray={`${rateRingDash} ${rateRingTotal}`}
+                  className="transition-all duration-500"
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span
+                  className="text-xl font-semibold tabular-nums"
+                  style={{ color: rateColor }}
+                >
+                  {commentRate.toFixed(1)}%
                 </span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-xs truncate">
-                      {r.targetName}
-                    </span>
-                    <Badge variant={RISK_VARIANT[r.riskLevel]}>
-                      {r.riskLevel}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {r.metricName} ={" "}
-                      <span className="text-foreground tabular-nums">
-                        {r.metricValue}
-                      </span>{" "}
-                      / {r.thresholdValue}
-                    </span>
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                    {r.message}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
+                <span className="text-[10px] text-muted-foreground tracking-wide">
+                  注释率
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function DependencySummaryCard({ deps }: { deps: DependencyEdgeResponse[] }) {
+function CodeSegmentLabel({
+  label,
+  count,
+  pct,
+  colorClass,
+}: {
+  label: string;
+  count: number;
+  pct: number;
+  colorClass: string;
+}) {
+  return (
+    <div className="flex items-baseline gap-1.5 min-w-0">
+      <span className={cn("h-2 w-2 rounded-full shrink-0", colorClass)} />
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <span className="font-semibold tabular-nums truncate">
+        {count.toLocaleString()}
+      </span>
+      <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+        ({pct.toFixed(1)}%)
+      </span>
+    </div>
+  );
+}
+
+// ============== F5 · RiskCenter (5-tab) ==============
+
+type RiskTabKey = "ALL" | "COMPLEX_METHOD" | "HIGH_CBO" | "LOW_LCOM" | "HIGH_RFC";
+
+function RiskCenter({
+  risks,
+  classes,
+  methods,
+}: {
+  risks: RiskItemResponse[];
+  classes: ClassMetricResponse[];
+  methods: MethodMetricResponse[];
+}) {
+  const navigate = useNavigate();
+
+  const allRisks = useMemo(
+    () =>
+      [...risks]
+        .sort(
+          (a, b) =>
+            RISK_RANK[b.riskLevel] - RISK_RANK[a.riskLevel] ||
+            b.metricValue - a.metricValue,
+        )
+        .slice(0, 10),
+    [risks],
+  );
+
+  const topComplexMethods = useMemo(
+    () =>
+      [...methods]
+        .sort((a, b) => b.cyclomaticComplexity - a.cyclomaticComplexity)
+        .slice(0, 10),
+    [methods],
+  );
+
+  const topCoupledClasses = useMemo(
+    () =>
+      [...classes]
+        .sort((a, b) => b.couplingCount - a.couplingCount)
+        .slice(0, 10),
+    [classes],
+  );
+
+  const topLowCohesionClasses = useMemo(
+    () =>
+      [...classes]
+        .sort(
+          (a, b) =>
+            b.lackOfCohesionOfMethods - a.lackOfCohesionOfMethods,
+        )
+        .slice(0, 10),
+    [classes],
+  );
+
+  const topRfcClasses = useMemo(
+    () =>
+      [...classes]
+        .sort((a, b) => b.responseForClass - a.responseForClass)
+        .slice(0, 10),
+    [classes],
+  );
+
+  const goClass = (fqn: string) =>
+    navigate(`/metrics/class/${encodeURIComponent(fqn)}`);
+
+  const tabs: {
+    key: RiskTabKey;
+    label: string;
+    icon: typeof Gauge;
+    count: number;
+    accent: string;
+  }[] = [
+    { key: "ALL", label: "综合", icon: AlertTriangle, count: allRisks.length, accent: "oklch(0.7 0.17 75)" },
+    { key: "COMPLEX_METHOD", label: "复杂方法", icon: Gauge, count: topComplexMethods.length, accent: "oklch(0.6 0.22 25)" },
+    { key: "HIGH_CBO", label: "高耦合", icon: Link2, count: topCoupledClasses.length, accent: "oklch(0.55 0.22 295)" },
+    { key: "LOW_LCOM", label: "低内聚", icon: Shrink, count: topLowCohesionClasses.length, accent: "oklch(0.7 0.17 75)" },
+    { key: "HIGH_RFC", label: "高 RFC", icon: Network, count: topRfcClasses.length, accent: "oklch(0.6 0.16 200)" },
+  ];
+
+  return (
+    <Card className="h-full">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            风险中心
+          </CardTitle>
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            共 {risks.length} 项识别风险 · 多视角排行
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <Tabs defaultValue="ALL">
+          <TabsList className="grid grid-cols-5 mb-3 h-auto p-1">
+            {tabs.map((t) => {
+              const Icon = t.icon;
+              return (
+                <TabsTrigger
+                  key={t.key}
+                  value={t.key}
+                  className="flex flex-col gap-0.5 py-1.5 text-[11px] data-[state=active]:font-medium"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="leading-tight">{t.label}</span>
+                  <span className="text-[10px] text-muted-foreground tabular-nums">
+                    {t.count}
+                  </span>
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+
+          <TabsContent value="ALL">
+            {allRisks.length === 0 ? (
+              <RiskEmpty />
+            ) : (
+              <ol className="space-y-1">
+                {allRisks.map((r, i) => (
+                  <RiskRow
+                    key={i}
+                    rank={i + 1}
+                    name={r.targetName}
+                    badge={<Badge variant={RISK_VARIANT[r.riskLevel]}>{r.riskLevel}</Badge>}
+                    metric={`${r.metricName} ${r.metricValue} / ${r.thresholdValue}`}
+                    sub={r.message}
+                    barValue={r.metricValue}
+                    barMax={Math.max(r.thresholdValue, r.metricValue) * 1.2}
+                    barColor="oklch(0.7 0.17 75)"
+                    onClick={
+                      r.targetType === "CLASS"
+                        ? () => goClass(r.targetName)
+                        : r.targetType === "METHOD"
+                          ? () => {
+                              // method.targetName 可能是 FQN 或 class.method 格式，简单截断
+                              const dot = r.targetName.lastIndexOf(".");
+                              const cls = dot > 0 ? r.targetName.slice(0, dot) : r.targetName;
+                              goClass(cls);
+                            }
+                          : undefined
+                    }
+                  />
+                ))}
+              </ol>
+            )}
+          </TabsContent>
+
+          <TabsContent value="COMPLEX_METHOD">
+            {topComplexMethods.length === 0 ? (
+              <RiskEmpty />
+            ) : (
+              <ol className="space-y-1">
+                {(() => {
+                  const max = Math.max(...topComplexMethods.map((m) => m.cyclomaticComplexity), 1);
+                  return topComplexMethods.map((m, i) => (
+                    <RiskRow
+                      key={i}
+                      rank={i + 1}
+                      name={
+                        <>
+                          <span className="text-muted-foreground">{m.classQualifiedName}.</span>
+                          <span className="font-medium">{m.methodName}</span>
+                        </>
+                      }
+                      badge={<Badge variant={RISK_VARIANT[m.riskLevel]}>{m.riskLevel}</Badge>}
+                      metric={`Cx ${m.cyclomaticComplexity}`}
+                      sub={`LoC ${m.loc} · 行 ${m.startLine}–${m.endLine}`}
+                      barValue={m.cyclomaticComplexity}
+                      barMax={max}
+                      barColor="oklch(0.6 0.22 25)"
+                      onClick={() => goClass(m.classQualifiedName)}
+                    />
+                  ));
+                })()}
+              </ol>
+            )}
+          </TabsContent>
+
+          <TabsContent value="HIGH_CBO">
+            {topCoupledClasses.length === 0 ? (
+              <RiskEmpty />
+            ) : (
+              <ol className="space-y-1">
+                {(() => {
+                  const max = Math.max(...topCoupledClasses.map((c) => c.couplingCount), 1);
+                  return topCoupledClasses.map((c, i) => (
+                    <RiskRow
+                      key={i}
+                      rank={i + 1}
+                      name={c.qualifiedName}
+                      badge={<Badge variant={RISK_VARIANT[c.riskLevel]}>{c.riskLevel}</Badge>}
+                      metric={`CBO ${c.couplingCount}`}
+                      sub={`WMC ${c.weightedMethodsPerClass} · RFC ${c.responseForClass}`}
+                      barValue={c.couplingCount}
+                      barMax={max}
+                      barColor="oklch(0.55 0.22 295)"
+                      onClick={() => goClass(c.qualifiedName)}
+                    />
+                  ));
+                })()}
+              </ol>
+            )}
+          </TabsContent>
+
+          <TabsContent value="LOW_LCOM">
+            {topLowCohesionClasses.length === 0 ? (
+              <RiskEmpty />
+            ) : (
+              <ol className="space-y-1">
+                {(() => {
+                  const max = Math.max(...topLowCohesionClasses.map((c) => c.lackOfCohesionOfMethods), 1);
+                  return topLowCohesionClasses.map((c, i) => (
+                    <RiskRow
+                      key={i}
+                      rank={i + 1}
+                      name={c.qualifiedName}
+                      badge={<Badge variant={RISK_VARIANT[c.riskLevel]}>{c.riskLevel}</Badge>}
+                      metric={`LCOM ${c.lackOfCohesionOfMethods.toFixed(2)}`}
+                      sub={`方法 ${c.methodCount} · 字段 ${c.fieldCount}`}
+                      barValue={c.lackOfCohesionOfMethods}
+                      barMax={max}
+                      barColor="oklch(0.7 0.17 75)"
+                      onClick={() => goClass(c.qualifiedName)}
+                    />
+                  ));
+                })()}
+              </ol>
+            )}
+          </TabsContent>
+
+          <TabsContent value="HIGH_RFC">
+            {topRfcClasses.length === 0 ? (
+              <RiskEmpty />
+            ) : (
+              <ol className="space-y-1">
+                {(() => {
+                  const max = Math.max(...topRfcClasses.map((c) => c.responseForClass), 1);
+                  return topRfcClasses.map((c, i) => (
+                    <RiskRow
+                      key={i}
+                      rank={i + 1}
+                      name={c.qualifiedName}
+                      badge={<Badge variant={RISK_VARIANT[c.riskLevel]}>{c.riskLevel}</Badge>}
+                      metric={`RFC ${c.responseForClass}`}
+                      sub={`WMC ${c.weightedMethodsPerClass} · CBO ${c.couplingCount}`}
+                      barValue={c.responseForClass}
+                      barMax={max}
+                      barColor="oklch(0.6 0.16 200)"
+                      onClick={() => goClass(c.qualifiedName)}
+                    />
+                  ));
+                })()}
+              </ol>
+            )}
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RiskEmpty() {
+  return (
+    <div className="py-12 text-center text-sm text-muted-foreground">
+      <Inbox className="h-8 w-8 mx-auto mb-2 opacity-40" />
+      暂无该类别的风险项
+    </div>
+  );
+}
+
+function RiskRow({
+  rank,
+  name,
+  badge,
+  metric,
+  sub,
+  barValue,
+  barMax,
+  barColor,
+  onClick,
+}: {
+  rank: number;
+  name: React.ReactNode;
+  badge: React.ReactNode;
+  metric: string;
+  sub: string;
+  barValue: number;
+  barMax: number;
+  barColor: string;
+  onClick?: () => void;
+}) {
+  const pct = Math.min(100, (barValue / barMax) * 100);
+  const interactive = !!onClick;
+  return (
+    <li
+      className={cn(
+        "group rounded-md px-2 py-2 text-sm transition-colors border-b border-border/40 last:border-0",
+        interactive && "cursor-pointer hover:bg-accent/60",
+      )}
+      onClick={onClick}
+    >
+      <div className="flex items-start gap-3">
+        <span className="font-mono text-[11px] text-muted-foreground w-6 tabular-nums shrink-0 mt-0.5">
+          {rank.toString().padStart(2, "0")}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-xs truncate min-w-0">{name}</span>
+            {badge}
+            <span className="text-[11px] text-muted-foreground ml-auto tabular-nums shrink-0">
+              {metric}
+            </span>
+            {interactive && (
+              <ArrowUpRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-1.5">
+            <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${pct}%`, background: barColor }}
+              />
+            </div>
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-1 line-clamp-1">
+            {sub}
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function DependencySummaryCard({
+  deps,
+  classes,
+}: {
+  deps: DependencyEdgeResponse[];
+  classes: ClassMetricResponse[];
+}) {
+  const [graphOpen, setGraphOpen] = useState(false);
+
   const stats = useMemo(() => {
     const byType = new Map<string, number>();
     const fanOut = new Map<string, number>();
@@ -823,60 +1273,98 @@ function DependencySummaryCard({ deps }: { deps: DependencyEdgeResponse[] }) {
   }, [deps]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-sky-500" />
-          依赖摘要
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          共 {deps.length} 条依赖边
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div>
-          <div className="text-xs font-medium text-muted-foreground mb-2">
-            按类型
+    <>
+      <Card className="h-full">
+        <CardHeader>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-sky-500" />
+                依赖摘要
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                共 {deps.length} 条依赖边 · {classes.length} 个类
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setGraphOpen(true)}
+              disabled={classes.length === 0 || deps.length === 0}
+              className="shrink-0"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              全屏图
+            </Button>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {stats.byType.length === 0 ? (
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div>
+            <div className="text-xs font-medium text-muted-foreground mb-2">
+              按类型
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {stats.byType.length === 0 ? (
+                <span className="text-xs text-muted-foreground">—</span>
+              ) : (
+                stats.byType.map(([type, count]) => (
+                  <Badge key={type} variant="outline">
+                    {type}
+                    <span className="ml-1 text-muted-foreground tabular-nums">
+                      {count}
+                    </span>
+                  </Badge>
+                ))
+              )}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-muted-foreground mb-2">
+              出度 Top 5（最依赖外部的类）
+            </div>
+            {stats.hubs.length === 0 ? (
               <span className="text-xs text-muted-foreground">—</span>
             ) : (
-              stats.byType.map(([type, count]) => (
-                <Badge key={type} variant="outline">
-                  {type}
-                  <span className="ml-1 text-muted-foreground tabular-nums">
-                    {count}
-                  </span>
-                </Badge>
-              ))
+              <ul className="space-y-1.5">
+                {stats.hubs.map(([name, count]) => (
+                  <li
+                    key={name}
+                    className="flex items-center justify-between text-xs gap-2"
+                  >
+                    <span className="font-mono truncate">{name}</span>
+                    <span className="tabular-nums text-muted-foreground shrink-0">
+                      {count} 条
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
-        </div>
-        <div>
-          <div className="text-xs font-medium text-muted-foreground mb-2">
-            出度 Top 5（最依赖外部的类）
+        </CardContent>
+      </Card>
+
+      <Dialog open={graphOpen} onOpenChange={setGraphOpen}>
+        <DialogContent className="max-w-[min(1400px,95vw)] h-[85vh] p-0 gap-0 overflow-hidden flex flex-col">
+          <DialogHeader className="px-5 py-3 border-b border-border shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Network className="h-4 w-4 text-primary" />
+              类依赖关系图
+              <Badge variant="outline" className="text-[10px] font-normal">
+                {classes.length} 节点 · {deps.length} 边
+              </Badge>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              节点颜色 = 风险等级 · 半径 = WMC · 滚轮缩放 · 拖拽节点 / 平移画布 · 悬停看详情
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 bg-[oklch(0.99_0_0)] dark:bg-[oklch(0.18_0.02_260)]">
+            {graphOpen && (
+              <DependencyGraph classes={classes} deps={deps} />
+            )}
           </div>
-          {stats.hubs.length === 0 ? (
-            <span className="text-xs text-muted-foreground">—</span>
-          ) : (
-            <ul className="space-y-1.5">
-              {stats.hubs.map(([name, count]) => (
-                <li
-                  key={name}
-                  className="flex items-center justify-between text-xs gap-2"
-                >
-                  <span className="font-mono truncate">{name}</span>
-                  <span className="tabular-nums text-muted-foreground shrink-0">
-                    {count} 条
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
