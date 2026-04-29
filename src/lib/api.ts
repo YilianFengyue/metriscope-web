@@ -691,6 +691,16 @@ export const analysisApi = {
     ),
 };
 
+export interface MaintainabilityResponse {
+  averageScore: number;
+  level: string;
+  color: string;
+  goodCount: number;
+  moderateCount: number;
+  lowCount: number;
+  criticalCount: number;
+}
+
 export const metricsApi = {
   overview: (projectId: number, opts?: RequestOptions) =>
     get<OverviewResponse>(`${PREFIX}/projects/${projectId}/overview`, opts),
@@ -711,6 +721,10 @@ export const metricsApi = {
       `${PREFIX}/projects/${projectId}/dependencies`,
       opts,
     ),
+  getMaintainability: (projectId: number) =>
+      request<MaintainabilityResponse>(`/api/v1/snapshots/${projectId}/maintainability`, {
+        method: 'GET'
+      }),
 };
 
 export const snapshotsApi = {

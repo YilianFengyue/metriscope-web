@@ -254,6 +254,15 @@ function MetricsInner({ projectId }: { projectId: number }) {
             avgComplexity > 10 ? "danger" : avgComplexity > 5 ? "warning" : "default"
           }
         />
+        <KpiCard
+            label="可维护性评分"
+            value={miData?.averageScore ? miData.averageScore.toFixed(1) : "--"}
+            unit={miData?.level}
+            tone={
+              miData?.color === "danger" ? "danger" :
+                  miData?.color === "warning" ? "warning" : "default"
+            }
+        />
         <QualityGradeCard
           grade={overview?.qualityGrade}
           highRiskCount={overview?.highRiskCount ?? 0}
